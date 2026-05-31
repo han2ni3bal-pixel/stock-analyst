@@ -1,0 +1,22 @@
+# stock-analyst dependencies
+# Python 3.10+ required
+
+# Core data
+akshare>=1.18
+pandas>=2.0
+requests>=2.31
+
+# Markets
+yfinance>=0.2  # 美股数据；需要代理才能稳定访问 Yahoo Finance
+
+# LLM 情感分析 + PDF 综合解读
+anthropic>=0.40
+httpx>=0.27
+
+# PDF 渲染
+markdown>=3.5
+matplotlib>=3.7  # 多因子打分卡的雷达图
+
+# 因子计算
+numpy>=1.24
+scipy>=1.10  # pandas Spearman 相关性（IC 计算）依赖
