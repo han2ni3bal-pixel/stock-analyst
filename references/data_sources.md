@@ -8,6 +8,7 @@
 |---|---|---|---|
 | P0 | 雪球 | `ak.stock_individual_basic_info_xq(symbol="SH603893")` | 稳定；返回 39 行 (item, value) |
 | P1 | 东财 | `ak.stock_individual_info_em(symbol="603893")` | 走 push2，**易被拉黑** |
+| P2 | itick | `GET /stock/info?type=stock&region=SH&code=600519` | 付费源兜底；需 `STOCK_ANALYST_ITICK_TOKEN`；**region 用 SH/SZ（不可用 CN）** |
 
 ## 2. 日 K 线
 
@@ -15,6 +16,10 @@
 |---|---|---|---|
 | P0 | 新浪 | `ak.stock_zh_a_daily(symbol="sh603893", start_date, end_date, adjust="qfq")` | symbol 用 `sh/sz+code` 小写 |
 | P1 | 东财 | `ak.stock_zh_a_hist(symbol="603893", period="daily", ...)` | 走 push2，常 fail |
+| P2 | itick | `GET /stock/kline?region=SH&code=600519&kType=8&limit=N` | 付费源兜底；**未复权**（与 qfq 口径不同）；毫秒时间戳需按日期过滤 |
+
+> **itick region 码**：A 股 `SH`/`SZ`、港股 `HK`（代码去前导零，`00700`→`700`）、美股 `US`。
+> **实时报价**：`GET /stock/quote?region=..&code=..` 返回 `ld`(最新)/`chp`(涨跌%)/`v`(量)，`data_layer.fetch_realtime()` 封装，analyze 仅在分析日为当天时附带展示。
 
 注意：算 MA60 至少需要 60 个交易日，建议 lookback 取 120 自然日（即 ~80 交易日）。
 

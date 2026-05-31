@@ -28,7 +28,7 @@ if HERE not in sys.path:
 from technical import compute_indicators, analyze_signals as analyze_tech
 from sentiment_llm import analyze_news_with_llm
 from fund_flow import fetch_with_fallback, extract_main_net
-from data_layer import fetch_kline, fetch_news, fetch_info, fetch_etf_fund_flow
+from data_layer import fetch_kline, fetch_news, fetch_info, fetch_etf_fund_flow, fetch_realtime
 from report_pdf import render_pdf
 from peer_scan import scan_peers
 from factor import compute_factors
@@ -442,6 +442,17 @@ def run(asset: Asset, out_dir: str, skip_peers: bool = False,
     report["recent_kline"] = kline.tail(6)[["date", "open", "high", "low", "close", "volume"]].astype(
         {"date": str}
     ).to_dict("records")
+
+    # itick 实时报价：仅当分析目标为今日时附带盘中最新价（display-only，不参与因子计算，避免前视偏差）
+    if asset.target_dash == datetime.now().strftime("%Y-%m-%d"):
+        rt = fetch_realtime(asset.kind, asset.code, asset.market_for_data)
+        if rt and rt.get("price") is not None:
+            rt["queried_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 提问时间点
+            chp = rt.get("change_pct")
+            chp_s = f"{chp:+.2f}%" if isinstance(chp, (int, float)) else "—"
+            vol = rt.get("volume") or 0
+            print(f"  ⚡ itick 实时: {rt['price']} ({chp_s})  量 {vol:,}  [{rt['region']}]  截至 {rt['queried_at']}")
+            report["realtime"] = rt
 
     section("3. 技术指标")
     tech = signal_technical(kline, asset, agg)

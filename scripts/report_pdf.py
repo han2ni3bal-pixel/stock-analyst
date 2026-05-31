@@ -138,6 +138,37 @@ def _section_info(report: dict) -> str:
     return md
 
 
+def _fmt_quote_time(ts_ms: Any) -> str:
+    """itick 毫秒时间戳 → 本地时间字符串。"""
+    try:
+        from datetime import datetime as _dt
+        return _dt.fromtimestamp(int(ts_ms) / 1000).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return "—"
+
+
+def _section_realtime(report: dict) -> str:
+    """盘中实时报价（itick /stock/quote，提问时点抓取）。仅当日分析才有此字段。"""
+    rt = report.get("realtime") or {}
+    if not rt or rt.get("price") is None:
+        return ""
+    chp = rt.get("change_pct")
+    arrow = "📈" if (chp or 0) > 0 else ("📉" if (chp or 0) < 0 else "→")
+    chp_s = f"{arrow} {chp:+.2f}%" if isinstance(chp, (int, float)) else "—"
+    queried = rt.get("queried_at") or "—"
+    quote_t = _fmt_quote_time(rt.get("ts_ms"))
+    md = f"> ⚡ **盘中实时报价**（itick · 提问时点 **{queried}**，交易所报价时间 {quote_t}）\n\n"
+    md += "| 项目 | 数值 |\n|---|---|\n"
+    md += f"| **最新价** | **{_fmt_num(rt.get('price'))}** |\n"
+    md += f"| **涨跌幅** | **{chp_s}** |\n"
+    md += f"| 涨跌额 | {_fmt_num(rt.get('change'))} |\n"
+    md += f"| 开 / 高 / 低 | {_fmt_num(rt.get('open'))} / {_fmt_num(rt.get('high'))} / {_fmt_num(rt.get('low'))} |\n"
+    md += f"| 成交量 | {_fmt_num(rt.get('volume'), 0)} |\n"
+    md += f"| 成交额 | {_fmt_num(rt.get('turnover'), 0)} |\n"
+    md += "\n"
+    return md
+
+
 def _section_price(report: dict) -> str:
     p = report.get("price") or {}
     if not p:
@@ -146,6 +177,10 @@ def _section_price(report: dict) -> str:
     vol, prev, pct = p.get("volume"), p.get("prev_close"), p.get("pct_change")
     arrow = "📈" if (pct or 0) > 0 else ("📉" if (pct or 0) < 0 else "→")
     md = "## 二、当日价格表现\n\n"
+    rt_block = _section_realtime(report)
+    md += rt_block
+    if rt_block:
+        md += "### 收盘 / 目标交易日\n\n"
     md += "| 项目 | 数值 |\n|---|---|\n"
     md += f"| 开盘 | {_fmt_num(open_)} |\n"
     md += f"| 最高 | {_fmt_num(high)} |\n"
@@ -624,6 +659,7 @@ def _llm_synthesis(report: dict) -> str:
         "kind": report.get("kind"),
         "target_date": report.get("target_date"),
         "price": report.get("price"),
+        "realtime": report.get("realtime"),  # 盘中实时报价（仅当日分析有；提问时点抓取）
         "technical": report.get("technical"),
         "fund_flow": report.get("fund_flow"),
         "sentiment": {
@@ -671,6 +707,7 @@ def _llm_synthesis(report: dict) -> str:
 4. 务必结合实际数值（不要写"涨幅大"、要写"涨幅 +19.29%"；引用因子分时给出原始分如"技术因子 +0.40"）
 5. 末尾不需要免责声明（PDF 模板会自动加）
 6. 总长度 700-1400 字
+7. 若数据含 `realtime` 字段（盘中实时报价，截至 queried_at 提问时点），说明这是**当下盘中价**而非收盘价：主导逻辑与操作建议须锚定该实时价，并指出它相对最近收盘的变化方向。无 realtime 字段时按收盘价分析即可。
 """
 
     client = anthropic.Anthropic(http_client=http_client)

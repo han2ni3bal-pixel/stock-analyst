@@ -159,6 +159,28 @@ def _itick_token() -> str:
     return (os.environ.get("STOCK_ANALYST_ITICK_TOKEN", "") or "").strip()
 
 
+def _itick_region(kind: str, code: str, market: str = "") -> str:
+    """itick region 码：美股 US / 港股 HK / A 股按交易所 SH|SZ（不能用 CN）。"""
+    if kind == "us":
+        return "US"
+    if kind == "hk":
+        return "HK"
+    # A 股：优先用调用方传入的 market（sh/sz），否则按代码段判断
+    m = (market or "").upper()
+    if m in ("SH", "SZ"):
+        return m
+    return "SH" if str(code)[:1] in ("6", "9") else "SZ"
+
+
+def _itick_code(kind: str, code: str) -> str:
+    """itick 代码格式：美股大写；港股去前导零（00700→700）；A 股原样。"""
+    if kind == "us":
+        return code.upper()
+    if kind == "hk":
+        return str(code).lstrip("0") or "0"
+    return str(code)
+
+
 def _itick_session():
     """itick 直连：trust_env=False 不走系统代理，避免被国内代理打回去。"""
     global _ITICK_SESSION
@@ -197,8 +219,12 @@ def _itick_get(path: str, params: dict, max_retries: int = 3) -> dict:
     raise last_exc  # type: ignore[misc]
 
 
-def _fetch_kline_us_itick(code: str, s_dash: str, e_dash: str) -> Optional[pd.DataFrame]:
-    """itick 美股日 K 线。kType=8 = daily。"""
+def _fetch_kline_itick(code: str, s_dash: str, e_dash: str,
+                       region: str = "US") -> Optional[pd.DataFrame]:
+    """itick 日 K 线兜底（region: US/HK/SH/SZ）。kType=8 = daily。
+
+    注意：itick 返回的是未复权价，与免费源的前复权 (qfq) 口径不同，仅作兜底用。
+    """
     if not _itick_token():
         return None
     try:
@@ -210,10 +236,10 @@ def _fetch_kline_us_itick(code: str, s_dash: str, e_dash: str) -> Optional[pd.Da
         limit = 1000
     try:
         data = _itick_get("/stock/kline", {
-            "region": "US", "code": code.upper(), "kType": 8, "limit": limit,
+            "region": region, "code": code, "kType": 8, "limit": limit,
         })
     except Exception as e:
-        logger.warning(f"itick kline 失败 {code}: {e}")
+        logger.warning(f"itick kline 失败 {region} {code}: {e}")
         return None
     bars = data.get("data") or []
     if not bars:
@@ -235,25 +261,30 @@ def _fetch_kline_us_itick(code: str, s_dash: str, e_dash: str) -> Optional[pd.Da
         })
     if not rows:
         return None
-    print(f"  ✓ itick /stock/kline (US {code}) {len(rows)} 条")
+    print(f"  ✓ itick /stock/kline ({region} {code}) {len(rows)} 条")
     return normalize_kline(pd.DataFrame(rows))
 
 
-def _fetch_info_us_itick(code: str) -> Optional[pd.DataFrame]:
-    """itick 美股 info → 转成 (item, value) 与 yfinance 输出对齐。"""
+def _fetch_kline_us_itick(code: str, s_dash: str, e_dash: str) -> Optional[pd.DataFrame]:
+    """美股 itick K 线兜底（兼容旧调用）。"""
+    return _fetch_kline_itick(code.upper(), s_dash, e_dash, region="US")
+
+
+def _fetch_info_itick(code: str, region: str = "US") -> Optional[pd.DataFrame]:
+    """itick info → 转成 (item, value)。region: US/HK/SH/SZ。"""
     if not _itick_token():
         return None
     try:
-        data = _itick_get("/stock/info", {"type": "stock", "region": "US", "code": code.upper()})
+        data = _itick_get("/stock/info", {"type": "stock", "region": region, "code": code})
     except Exception as e:
-        logger.warning(f"itick info 失败 {code}: {e}")
+        logger.warning(f"itick info 失败 {region} {code}: {e}")
         return None
     d = data.get("data") or {}
     if not d:
         return None
     keep = [
         ("名称", d.get("n")),
-        ("代码", code.upper()),
+        ("代码", code),
         ("行业", d.get("i") or d.get("s")),
         ("交易所", d.get("e")),
         ("简介", str(d.get("bd") or "")[:500]),
@@ -261,8 +292,44 @@ def _fetch_info_us_itick(code: str) -> Optional[pd.DataFrame]:
     rows = [(k, v) for k, v in keep if v not in (None, "", 0)]
     if not rows:
         return None
-    print(f"  ✓ itick /stock/info (US {code})")
+    print(f"  ✓ itick /stock/info ({region} {code})")
     return pd.DataFrame(rows, columns=["item", "value"])
+
+
+def _fetch_info_us_itick(code: str) -> Optional[pd.DataFrame]:
+    """美股 itick info 兜底（兼容旧调用）。"""
+    return _fetch_info_itick(code.upper(), region="US")
+
+
+def fetch_realtime(kind: str, code: str, market: str = "") -> Optional[dict]:
+    """itick /stock/quote 实时报价（盘中最新价/涨跌幅/成交量）。
+
+    仅在配了 token 时可用；返回 None 表示不可用。盘后返回的是上一交易日快照。
+    """
+    if not _itick_token():
+        return None
+    region = _itick_region(kind, code, market)
+    icode = _itick_code(kind, code)
+    try:
+        data = _itick_get("/stock/quote", {"region": region, "code": icode})
+    except Exception as e:
+        logger.warning(f"itick quote 失败 {region} {icode}: {e}")
+        return None
+    q = data.get("data") or {}
+    if not q or q.get("ld") in (None, 0):
+        return None
+    return {
+        "price":      q.get("ld"),
+        "open":       q.get("o"),
+        "high":       q.get("h"),
+        "low":        q.get("l"),
+        "change":     q.get("ch"),
+        "change_pct": q.get("chp"),
+        "volume":     q.get("v"),
+        "turnover":   q.get("tu"),
+        "ts_ms":      q.get("t"),
+        "region":     region,
+    }
 
 
 # ---------------- 美股 secid 候选 ----------------
@@ -285,11 +352,23 @@ def fetch_info(kind: str, code: str, market: str) -> Optional[pd.DataFrame]:
     try:
         if kind == "astock":
             sym = f"{market.upper()}{code}"
-            with _without_system_proxy():
-                return ak.stock_individual_basic_info_xq(symbol=sym)
+            try:
+                with _without_system_proxy():
+                    df = ak.stock_individual_basic_info_xq(symbol=sym)
+                if df is not None and not df.empty:
+                    return df
+            except Exception as e:
+                print(f"  [info 雪球失败] {type(e).__name__}: {str(e)[:80]}")
+            return _fetch_info_itick(code, _itick_region(kind, code, market))
         if kind == "hk":
-            with _without_system_proxy():
-                return ak.stock_individual_basic_info_xq(symbol=f"HK{code}")
+            try:
+                with _without_system_proxy():
+                    df = ak.stock_individual_basic_info_xq(symbol=f"HK{code}")
+                if df is not None and not df.empty:
+                    return df
+            except Exception as e:
+                print(f"  [info 雪球失败] {type(e).__name__}: {str(e)[:80]}")
+            return _fetch_info_itick(_itick_code("hk", code), "HK")
         if kind == "etf":
             with _without_system_proxy():
                 spot = ak.fund_etf_spot_em()
@@ -361,30 +440,53 @@ def fetch_kline(kind: str, code: str, market: str, target_date: str,
     s_str, e_str = start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
     s_dash, e_dash = start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
 
-    try:
-        if kind == "astock":
-            with _without_system_proxy():
-                df = ak.stock_zh_a_daily(symbol=f"{market}{code}",
-                                         start_date=s_str, end_date=e_str, adjust="qfq")
-        elif kind == "hk":
-            with _without_system_proxy():
-                df = ak.stock_hk_daily(symbol=code, adjust="qfq")
-            df = df[(df["date"] >= start.date()) & (df["date"] <= end.date())]
-        elif kind == "etf":
+    if kind == "us":
+        return _fetch_kline_us(code, s_str, e_str, s_dash, e_dash)
+    if kind == "astock":
+        return _fetch_kline_astock(code, market, s_str, e_str, s_dash, e_dash)
+    if kind == "hk":
+        return _fetch_kline_hk(code, start, end, s_dash, e_dash)
+
+    if kind == "etf":
+        try:
             with _without_system_proxy():
                 df = ak.fund_etf_hist_em(symbol=code, period="daily",
                                          start_date=s_str, end_date=e_str, adjust="qfq")
-        elif kind == "us":
-            return _fetch_kline_us(code, s_str, e_str, s_dash, e_dash)
-        else:
+        except Exception as e:
+            print(f"  [K 线失败] {type(e).__name__}: {str(e)[:100]}")
             return None
-    except Exception as e:
-        print(f"  [K 线失败] {type(e).__name__}: {str(e)[:100]}")
-        return None
+        if df is None or df.empty:
+            return None
+        return normalize_kline(df)
+    return None
 
-    if df is None or df.empty:
-        return None
-    return normalize_kline(df)
+
+def _fetch_kline_astock(code: str, market: str, s_str: str, e_str: str,
+                        s_dash: str, e_dash: str) -> Optional[pd.DataFrame]:
+    """A 股日 K 线：新浪（qfq）优先，失败/为空再降级 itick（未复权，需 token）。"""
+    try:
+        with _without_system_proxy():
+            df = ak.stock_zh_a_daily(symbol=f"{market}{code}",
+                                     start_date=s_str, end_date=e_str, adjust="qfq")
+        if df is not None and not df.empty:
+            return normalize_kline(df)
+    except Exception as e:
+        print(f"  [A 股新浪 K 线失败] {type(e).__name__}: {str(e)[:80]}")
+    return _fetch_kline_itick(code, s_dash, e_dash, _itick_region("astock", code, market))
+
+
+def _fetch_kline_hk(code: str, start: datetime, end: datetime,
+                    s_dash: str, e_dash: str) -> Optional[pd.DataFrame]:
+    """港股日 K 线：雪球（qfq）优先，失败/为空再降级 itick（未复权，需 token）。"""
+    try:
+        with _without_system_proxy():
+            df = ak.stock_hk_daily(symbol=code, adjust="qfq")
+        df = df[(df["date"] >= start.date()) & (df["date"] <= end.date())]
+        if df is not None and not df.empty:
+            return normalize_kline(df)
+    except Exception as e:
+        print(f"  [港股雪球 K 线失败] {type(e).__name__}: {str(e)[:80]}")
+    return _fetch_kline_itick(_itick_code("hk", code), s_dash, e_dash, "HK")
 
 
 def _fetch_kline_us(code: str, s_str: str, e_str: str,
