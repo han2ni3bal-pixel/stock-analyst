@@ -13,7 +13,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
 from typing import Any
@@ -30,7 +32,7 @@ from sentiment_llm import analyze_news_with_llm
 from fund_flow import fetch_with_fallback, extract_main_net
 from data_layer import fetch_kline, fetch_news, fetch_info, fetch_etf_fund_flow, fetch_realtime
 from report_pdf import render_pdf
-from peer_scan import scan_peers
+from peer_scan import scan_peers, _suggest_peers
 from factor import compute_factors
 from options_flow import analyze_options_flow
 
@@ -411,7 +413,7 @@ def _print_peers_summary(peers: dict) -> None:
 
 
 def run(asset: Asset, out_dir: str, skip_peers: bool = False,
-        validate_factors: bool = True) -> dict:
+        validate_factors: bool = True, async_pdf: bool = True) -> dict:
     os.makedirs(out_dir, exist_ok=True)
     report: dict[str, Any] = {
         "code": asset.code, "name": asset.name, "market": asset.market,
@@ -465,29 +467,42 @@ def run(asset: Asset, out_dir: str, skip_peers: bool = False,
         section(f"5. 龙虎榜 ({asset.target_date})")
         report["lhb"] = signal_lhb(asset, agg)
 
+    # peer 推荐(LLM) 与新闻情感(LLM) 互不依赖 → 并发发起，让两次 Opus 往返重叠
+    run_peers = asset.kind != "etf" and not skip_peers
+    peer_executor = None
+    peer_rec_future = None
+    if run_peers:
+        info_dict = report.get("info") or {}
+        industry_hint = (info_dict.get("行业")
+                         or info_dict.get("所处行业")
+                         or info_dict.get("Sector")
+                         or info_dict.get("Industry"))
+        peer_executor = ThreadPoolExecutor(max_workers=1)
+        peer_rec_future = peer_executor.submit(
+            _suggest_peers, asset.name, asset.code, asset.kind, industry_hint)
+
     section("6. 新闻情感（Claude API）")
     report["sentiment"] = signal_sentiment(asset, agg)
 
     # 板块扫描提前到因子前，因子的"相对强度"会复用 peers 数据
     peers_data: dict | None = None
-    if asset.kind != "etf" and not skip_peers:
+    if run_peers:
         section("7. 板块联动 — 同行业看多标的")
         try:
-            info_dict = report.get("info") or {}
-            industry_hint = (info_dict.get("行业")
-                             or info_dict.get("所处行业")
-                             or info_dict.get("Sector")
-                             or info_dict.get("Industry"))
+            rec = peer_rec_future.result()  # 多半已在情感分析期间跑完
             peers_data = scan_peers(
                 target_name=asset.name, target_code=asset.code,
                 target_market=asset.kind, target_date=asset.target_date,
-                industry_hint=industry_hint, top_n=5,
+                top_n=5, prefetched_rec=rec,
             )
             report["peers"] = peers_data
             if peers_data and "error" not in peers_data:
                 _print_peers_summary(peers_data)
         except Exception as e:
             print(f"  [Peer] 扫描失败: {e}")
+        finally:
+            if peer_executor is not None:
+                peer_executor.shutdown(wait=False)
 
     section("8. 多因子打分卡（风格 / 技术 / 基本面 / 相对强度，含 IC/IR 有效性检验）")
     try:
@@ -521,11 +536,30 @@ def run(asset: Asset, out_dir: str, skip_peers: bool = False,
     print(f"\n  JSON → {out}")
 
     section("11. 生成 PDF 报告")
-    try:
-        pdf_path = render_pdf(report, out_dir, with_synthesis=True)
-        print(f"  PDF  → {pdf_path}")
-    except Exception as e:
-        print(f"  [PDF 生成失败]: {e}")
+    pdf_path = os.path.join(out_dir, f"report_{asset.code}_{asset.target_date}.pdf")
+    if async_pdf:
+        # 综述 LLM(~10-15s) + Chrome 渲染移到分离子进程，主流程不阻塞、立即返回结果。
+        # 子进程从已存的 JSON 读 report，独立生成；start_new_session 让它脱离父进程存活。
+        log_path = pdf_path.replace(".pdf", ".pdflog")
+        try:
+            logf = open(log_path, "wb")
+            subprocess.Popen(
+                [sys.executable, os.path.join(HERE, "report_pdf.py"), out, out_dir],
+                stdout=logf, stderr=subprocess.STDOUT, start_new_session=True,
+            )
+            print(f"  PDF 后台生成中（含综述 LLM）→ {pdf_path}")
+            print(f"     完成前请稍候几秒；如未生成可看日志 {log_path}")
+        except Exception as e:
+            print(f"  [PDF 异步启动失败，回退同步]: {e}")
+            try:
+                print(f"  PDF  → {render_pdf(report, out_dir, with_synthesis=True)}")
+            except Exception as e2:
+                print(f"  [PDF 生成失败]: {e2}")
+    else:
+        try:
+            print(f"  PDF  → {render_pdf(report, out_dir, with_synthesis=True)}")
+        except Exception as e:
+            print(f"  [PDF 生成失败]: {e}")
 
     print("\n⚠️  仅作流程演示，不构成投资建议。")
     return report
@@ -543,6 +577,8 @@ def parse_args():
                    help="不扫描同行业 peers（默认会跑，跑一次约 +20-60s）")
     p.add_argument("--no-validate-factors", action="store_true",
                    help="跳过因子有效性 IC/IR 检验，所有因子全权计入")
+    p.add_argument("--sync-pdf", action="store_true",
+                   help="同步生成 PDF（阻塞等综述 LLM + Chrome）；默认异步后台生成")
     return p.parse_args()
 
 
@@ -553,7 +589,8 @@ def main():
     out_dir = args.out or os.path.join(os.getcwd(), "output")
     run(asset, out_dir,
         skip_peers=args.no_peers,
-        validate_factors=not args.no_validate_factors)
+        validate_factors=not args.no_validate_factors,
+        async_pdf=not args.sync_pdf)
 
 
 if __name__ == "__main__":

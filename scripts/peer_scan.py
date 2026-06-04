@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pandas as pd
@@ -218,9 +219,27 @@ def _make_brief(rec: dict) -> str:
 
 # ---------------- 主入口 ----------------
 
+def _scan_a_peer(p: dict, target_date: str) -> tuple[dict, dict | None] | None:
+    """校验 + 拉单只 A 股信号。返回 (peer_meta, signal|None)；代码非法返回 None。"""
+    code = str(p.get("code", "")).strip().zfill(6)
+    if len(code) != 6 or code[0] in ("4", "8") or not code.isdigit():
+        return None
+    sig = _quick_signal(_market_for_a(code), code, target_date)
+    return ({**p, "code": code}, sig)
+
+
+def _scan_us_peer(p: dict, target_date: str) -> tuple[dict, dict | None] | None:
+    ticker = str(p.get("ticker", "")).strip().upper()
+    if not ticker or not all(c.isalpha() or c == "." for c in ticker):
+        return None
+    sig = _quick_signal("us", ticker, target_date)
+    return ({**p, "ticker": ticker}, sig)
+
+
 def scan_peers(target_name: str, target_code: str, target_market: str,
                target_date: str, industry_hint: str | None = None,
-               top_n: int = 5) -> dict:
+               top_n: int = 5, prefetched_rec: dict | None = None,
+               max_workers: int = 8) -> dict:
     """返回结构：
     {
       "industry_zh": "...",
@@ -229,43 +248,48 @@ def scan_peers(target_name: str, target_code: str, target_market: str,
       "us_stock": [...],
       "stats": {"a_total": N, "a_kept": K, "us_total": N, "us_kept": K}
     }
+
+    prefetched_rec：若上层已并发取到 Claude 的 peer 推荐，直接传入，省一次串行 LLM 往返。
     """
-    print("  [Peer] 调 Claude 推荐同行业 peers...")
-    rec = _suggest_peers(target_name, target_code, target_market, industry_hint)
+    if prefetched_rec is not None:
+        rec = prefetched_rec
+    else:
+        print("  [Peer] 调 Claude 推荐同行业 peers...")
+        rec = _suggest_peers(target_name, target_code, target_market, industry_hint)
     if not rec:
         return {"error": "peer 推荐失败"}
 
     a_in = rec.get("a_stock_peers") or []
     us_in = rec.get("us_stock_peers") or []
-    print(f"  [Peer] 候选 A 股 {len(a_in)} 只 / 美股 {len(us_in)} 只 → 开始扫描")
+    print(f"  [Peer] 候选 A 股 {len(a_in)} 只 / 美股 {len(us_in)} 只 → 并发扫描")
+
+    # 16 只 peer 的 K 线拉取彼此独立 → 线程池并发；保留输入顺序打印
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        a_scanned = list(pool.map(lambda p: _scan_a_peer(p, target_date), a_in))
+        us_scanned = list(pool.map(lambda p: _scan_us_peer(p, target_date), us_in))
 
     a_results, us_results = [], []
-
-    for p in a_in:
-        code = str(p.get("code", "")).strip().zfill(6)
-        if len(code) != 6 or code[0] in ("4", "8") or not code.isdigit():
+    for item in a_scanned:
+        if item is None:
             continue
-        market = _market_for_a(code)
-        sig = _quick_signal(market, code, target_date)
+        p, sig = item
         if not sig:
-            print(f"    [-] {code} {p.get('name','')}: 无 K 线")
+            print(f"    [-] {p.get('code','')} {p.get('name','')}: 无 K 线")
             continue
-        line = f"    [{sig['verdict']}/{sig['confidence']}] {code} {p.get('name','')}: {sig['pct_change']:+.2f}% 信号 {sig['total_score']:+.2f}"
-        print(line)
+        print(f"    [{sig['verdict']}/{sig['confidence']}] {p['code']} {p.get('name','')}: "
+              f"{sig['pct_change']:+.2f}% 信号 {sig['total_score']:+.2f}")
         if _is_bullish_with_confidence(sig):
             a_results.append({**p, **sig, "brief": _make_brief(sig)})
-        time.sleep(0.2)
 
-    for p in us_in:
-        ticker = str(p.get("ticker", "")).strip().upper()
-        if not ticker or not all(c.isalpha() or c == "." for c in ticker):
+    for item in us_scanned:
+        if item is None:
             continue
-        sig = _quick_signal("us", ticker, target_date)
+        p, sig = item
         if not sig:
-            print(f"    [-] {ticker} {p.get('name','')}: 无 K 线")
+            print(f"    [-] {p.get('ticker','')} {p.get('name','')}: 无 K 线")
             continue
-        line = f"    [{sig['verdict']}/{sig['confidence']}] {ticker} {p.get('name','')}: {sig['pct_change']:+.2f}% 信号 {sig['total_score']:+.2f}"
-        print(line)
+        print(f"    [{sig['verdict']}/{sig['confidence']}] {p['ticker']} {p.get('name','')}: "
+              f"{sig['pct_change']:+.2f}% 信号 {sig['total_score']:+.2f}")
         if _is_bullish_with_confidence(sig):
             us_results.append({**p, **sig, "brief": _make_brief(sig)})
 

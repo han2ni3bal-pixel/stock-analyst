@@ -1,0 +1,880 @@
+{
+  "code": "603893",
+  "name": "瑞芯微",
+  "market": "sh",
+  "kind": "astock",
+  "target_date": "20260603",
+  "info": {
+    "名称": "瑞芯微",
+    "代码": "603893",
+    "行业": "Semiconductors",
+    "交易所": "SSE",
+    "简介": "Rockchip Electronics Co., Ltd. designs and develops integrated circuits. It provides professional chip solutions for intelligent cellphones, tablet computers, TV boxes, on-board navigation, IoT and multi-media audio, vehicle, and other related solutions. The company was founded on November 25, 2001 and is headquartered in Fuzhou, China."
+  },
+  "price": {
+    "open": 175.0,
+    "high": 181.5,
+    "low": 174.0,
+    "close": 176.15,
+    "volume": 11528144.0,
+    "prev_close": 175.5,
+    "pct_change": 0.37037037037037357
+  },
+  "recent_kline": [
+    {
+      "date": "2026-05-28",
+      "open": 201.91,
+      "high": 202.67,
+      "low": 188.98,
+      "close": 193.15,
+      "volume": 19816727.0
+    },
+    {
+      "date": "2026-05-29",
+      "open": 193.0,
+      "high": 195.5,
+      "low": 174.15,
+      "close": 175.67,
+      "volume": 21090324.0
+    },
+    {
+      "date": "2026-06-01",
+      "open": 178.0,
+      "high": 190.5,
+      "low": 177.9,
+      "close": 180.66,
+      "volume": 18135156.0
+    },
+    {
+      "date": "2026-06-02",
+      "open": 180.67,
+      "high": 181.7,
+      "low": 174.48,
+      "close": 175.5,
+      "volume": 11861711.0
+    },
+    {
+      "date": "2026-06-03",
+      "open": 175.0,
+      "high": 181.5,
+      "low": 174.0,
+      "close": 176.15,
+      "volume": 11528144.0
+    },
+    {
+      "date": "2026-06-04",
+      "open": 171.0,
+      "high": 179.19,
+      "low": 170.12,
+      "close": 173.31,
+      "volume": 10103179.0
+    }
+  ],
+  "technical": {
+    "score_raw": -0.6,
+    "snapshot": {
+      "close": 176.15,
+      "MA5": 180.226,
+      "MA10": 187.46800000000002,
+      "MA20": 184.64550000000003,
+      "MA60": 172.23466666666667,
+      "RSI14": 45.359488902546346,
+      "BB_up": 202.07754004126096,
+      "BB_mid": 184.64550000000003,
+      "BB_dn": 167.2134599587391,
+      "BB_pct": 0.2563251352139074,
+      "MACD_hist": -2.278650131449888,
+      "VOL_RATIO": 0.6992512209630277
+    },
+    "rules": [
+      "价格跌破MA20(184.65) → -0.3",
+      "RSI=45.4 偏弱 → -0.2",
+      "MACD柱缩小转负(-2.279) → -0.2",
+      "缩量上涨(量比0.70) → 持续性弱 +0.1"
+    ]
+  },
+  "fund_flow": {
+    "main_net_yuan": -75747936.0,
+    "source": "eastmoney push2his"
+  },
+  "lhb": null,
+  "sentiment": {
+    "events": [
+      {
+        "summary": "2026年一季报：营收12.05亿元，归母净利润3.29亿元，经营现金流净流入3.83亿元",
+        "direction": "+",
+        "importance": 3,
+        "timing": "past",
+        "sources_count": 1
+      },
+      {
+        "summary": "个股突破年线/半年线，技术面走稳",
+        "direction": "+",
+        "importance": 2,
+        "timing": "past",
+        "sources_count": 4
+      },
+      {
+        "summary": "出现超5000万元大宗交易（28.50元成交，折价1.22%）",
+        "direction": "-",
+        "importance": 2,
+        "timing": "past",
+        "sources_count": 1
+      },
+      {
+        "summary": "国家大基金持股概念板块多日震荡，主力资金时有净流出",
+        "direction": "0",
+        "importance": 2,
+        "timing": "past",
+        "sources_count": 4
+      }
+    ],
+    "verdict": "neutral",
+    "confidence": "low",
+    "score": 0.3,
+    "rationale": "近期新闻多为榜单/板块资金流类噪音，缺乏个股实质性催化。一季报已公布且业绩平稳为偏正面背景，技术面突破年线略偏多，但板块资金流出和大宗折价交易构成扰动。整体无明确方向性事件主导，短期偏中性。",
+    "_usage": {
+      "input_tokens": 2281,
+      "output_tokens": 436,
+      "cache_read": 0,
+      "cache_create": 0
+    }
+  },
+  "peers": {
+    "industry_zh": "半导体",
+    "industry_en": "Semiconductors",
+    "stats": {
+      "a_total": 8,
+      "a_kept": 3,
+      "us_total": 8,
+      "us_kept": 5
+    },
+    "a_stock": [
+      {
+        "code": "688256",
+        "name": "寒武纪",
+        "reason": "国产AI芯片龙头",
+        "market": "sh",
+        "actual_date": "2026-06-03",
+        "close": 1378.1,
+        "prev_close": 1300.0,
+        "pct_change": 6.007692307692301,
+        "price_score": 1.0,
+        "tech_score_raw": 0.5,
+        "tech_score_weighted": 0.35,
+        "tech_rules": [
+          "价格在MA20(1297.50)之上 → +0.3",
+          "RSI=61.7 偏强 → +0.2"
+        ],
+        "snapshot": {
+          "close": 1378.1,
+          "MA5": 1323.52,
+          "MA10": 1335.196,
+          "MA20": 1297.5049999999999,
+          "MA60": 964.9383333333333,
+          "RSI14": 61.69605237525673,
+          "BB_up": 1436.3929444580858,
+          "BB_mid": 1297.5049999999999,
+          "BB_dn": 1158.617055541914,
+          "BB_pct": 0.7901439729505185,
+          "MACD_hist": -15.754183613479626,
+          "VOL_RATIO": 1.1886504509675198
+        },
+        "total_score": 1.35,
+        "verdict": "看多",
+        "confidence": "中",
+        "brief": "+6.01% ｜ RSI=61.7 偏强 ｜ 信号 +1.35 ｜ [看多/中]"
+      },
+      {
+        "code": "688008",
+        "name": "澜起科技",
+        "reason": "内存接口芯片龙头",
+        "market": "sh",
+        "actual_date": "2026-06-03",
+        "close": 253.9,
+        "prev_close": 237.0,
+        "pct_change": 7.130801687763716,
+        "price_score": 1.0,
+        "tech_score_raw": 0.5,
+        "tech_score_weighted": 0.35,
+        "tech_rules": [
+          "价格在MA20(251.37)之上 → +0.3",
+          "RSI=59.0 偏强 → +0.2"
+        ],
+        "snapshot": {
+          "close": 253.9,
+          "MA5": 247.436,
+          "MA10": 259.305,
+          "MA20": 251.3705,
+          "MA60": 183.3585,
+          "RSI14": 59.01150339636806,
+          "BB_up": 289.09549295804084,
+          "BB_mid": 251.3705,
+          "BB_dn": 213.64550704195915,
+          "BB_pct": 0.5335255198432166,
+          "MACD_hist": -5.435879476710653,
+          "VOL_RATIO": 1.2495536193530539
+        },
+        "total_score": 1.35,
+        "verdict": "看多",
+        "confidence": "中",
+        "brief": "+7.13% ｜ RSI=59.0 偏强 ｜ 信号 +1.35 ｜ [看多/中]"
+      },
+      {
+        "code": "603501",
+        "name": "韦尔股份",
+        "reason": "国产CIS图像传感器龙头",
+        "market": "sh",
+        "actual_date": "2026-06-03",
+        "close": 100.81,
+        "prev_close": 92.56,
+        "pct_change": 8.91313742437338,
+        "price_score": 1.0,
+        "tech_score_raw": 0.4,
+        "tech_score_weighted": 0.28,
+        "tech_rules": [
+          "价格跌破MA20(101.04) → -0.3",
+          "RSI=51.0 偏强 → +0.2",
+          "放量上涨(量比1.72, +8.9%) → +0.5"
+        ],
+        "snapshot": {
+          "close": 100.81,
+          "MA5": 96.44399999999999,
+          "MA10": 100.858,
+          "MA20": 101.041,
+          "MA60": 100.51466666666667,
+          "RSI14": 50.99229705965016,
+          "BB_up": 109.25271409762126,
+          "BB_mid": 101.041,
+          "BB_dn": 92.82928590237873,
+          "BB_pct": 0.4859347270707519,
+          "MACD_hist": -0.8441807898402512,
+          "VOL_RATIO": 1.7219069941159775
+        },
+        "total_score": 1.28,
+        "verdict": "看多",
+        "confidence": "中",
+        "brief": "+8.91% ｜ RSI=51.0 偏强 ｜ 放量上涨(量比1.72, +8.9%) ｜ 信号 +1.28 ｜ [看多/中]"
+      }
+    ],
+    "us_stock": [
+      {
+        "ticker": "QCOM",
+        "name": "Qualcomm",
+        "reason": "移动SoC与基带龙头",
+        "market": "us",
+        "code": "QCOM",
+        "actual_date": "2026-06-03",
+        "close": 250.01,
+        "prev_close": 240.84,
+        "pct_change": 3.8075070586281297,
+        "price_score": 0.5,
+        "tech_score_raw": 1.7,
+        "tech_score_weighted": 1.19,
+        "tech_rules": [
+          "均线多头排列(MA5>10>20>60) → +1",
+          "RSI=65.0 偏强 → +0.2",
+          "接近布林上轨(BB%=0.86) → +0.3",
+          "MACD柱放大(0.573) → +0.2"
+        ],
+        "snapshot": {
+          "close": 250.01,
+          "MA5": 242.83,
+          "MA10": 235.0487,
+          "MA20": 221.33385000000004,
+          "MA60": 165.4217,
+          "RSI14": 65.01557667492983,
+          "BB_up": 261.5280951773775,
+          "BB_mid": 221.33385000000004,
+          "BB_dn": 181.13960482262254,
+          "BB_pct": 0.8567195984580867,
+          "MACD_hist": 0.572786189291314,
+          "VOL_RATIO": 0.8993842880867903
+        },
+        "total_score": 1.69,
+        "verdict": "看多",
+        "confidence": "高",
+        "brief": "+3.81% ｜ 均线多头排列(MA5>10>20>60) ｜ RSI=65.0 偏强 ｜ 信号 +1.69 ｜ [看多/高]"
+      },
+      {
+        "ticker": "AMD",
+        "name": "AMD",
+        "reason": "CPU/GPU 双线竞争龙头",
+        "market": "us",
+        "code": "AMD",
+        "actual_date": "2026-06-03",
+        "close": 542.52,
+        "prev_close": 521.54,
+        "pct_change": 4.022701997929214,
+        "price_score": 0.5,
+        "tech_score_raw": 1.0,
+        "tech_score_weighted": 0.7,
+        "tech_rules": [
+          "均线多头排列(MA5>10>20>60) → +1",
+          "RSI=77.8 超买 → -0.5",
+          "接近布林上轨(BB%=0.97) → +0.3",
+          "MACD柱放大(2.269) → +0.2"
+        ],
+        "snapshot": {
+          "close": 542.52,
+          "MA5": 521.676,
+          "MA10": 497.24899999999997,
+          "MA20": 465.9513,
+          "MA60": 322.88225,
+          "RSI14": 77.77577496291204,
+          "BB_up": 547.9946563456723,
+          "BB_mid": 465.9513,
+          "BB_dn": 383.90794365432765,
+          "BB_pct": 0.9666355900738263,
+          "MACD_hist": 2.269345909985553,
+          "VOL_RATIO": 0.9733533372962315
+        },
+        "total_score": 1.2,
+        "verdict": "看多",
+        "confidence": "中",
+        "brief": "+4.02% ｜ 均线多头排列(MA5>10>20>60) ｜ 接近布林上轨(BB%=0.97) ｜ 信号 +1.20 ｜ [看多/中]"
+      },
+      {
+        "ticker": "TXN",
+        "name": "Texas Instruments",
+        "reason": "模拟芯片龙头",
+        "market": "us",
+        "code": "TXN",
+        "actual_date": "2026-06-03",
+        "close": 308.59,
+        "prev_close": 308.12,
+        "pct_change": 0.15253797221860652,
+        "price_score": 0.2,
+        "tech_score_raw": 0.6,
+        "tech_score_weighted": 0.42,
+        "tech_rules": [
+          "价格在MA20(303.10)之上 → +0.3",
+          "RSI=59.9 偏强 → +0.2",
+          "缩量上涨(量比0.66) → 持续性弱 +0.1"
+        ],
+        "snapshot": {
+          "close": 308.59,
+          "MA5": 306.308,
+          "MA10": 308.63599999999997,
+          "MA20": 303.096,
+          "MA60": 247.7045,
+          "RSI14": 59.87610282015491,
+          "BB_up": 323.32011005133654,
+          "BB_mid": 303.096,
+          "BB_dn": 282.87188994866347,
+          "BB_pct": 0.6358279792300896,
+          "MACD_hist": -3.06511774780199,
+          "VOL_RATIO": 0.6617368095833457
+        },
+        "total_score": 0.62,
+        "verdict": "偏多",
+        "confidence": "中",
+        "brief": "+0.15% ｜ RSI=59.9 偏强 ｜ 缩量上涨(量比0.66) ｜ 信号 +0.62 ｜ [偏多/中]"
+      },
+      {
+        "ticker": "TSM",
+        "name": "Taiwan Semiconductor",
+        "reason": "全球晶圆代工龙头",
+        "market": "us",
+        "code": "TSM",
+        "actual_date": "2026-06-03",
+        "close": 436.69,
+        "prev_close": 446.69,
+        "pct_change": -2.2386890237077166,
+        "price_score": -0.5,
+        "tech_score_raw": 1.5,
+        "tech_score_weighted": 1.05,
+        "tech_rules": [
+          "均线多头排列(MA5>10>20>60) → +1",
+          "RSI=63.1 偏强 → +0.2",
+          "接近布林上轨(BB%=0.90) → +0.3"
+        ],
+        "snapshot": {
+          "close": 436.69,
+          "MA5": 432.46400000000006,
+          "MA10": 421.066,
+          "MA20": 413.412,
+          "MA60": 378.18766666666664,
+          "RSI14": 63.14409558737502,
+          "BB_up": 442.6042459783978,
+          "BB_mid": 413.412,
+          "BB_dn": 384.21975402160217,
+          "BB_pct": 0.8987017651404021,
+          "MACD_hist": 2.2855516835052843,
+          "VOL_RATIO": 0.8617177099988548
+        },
+        "total_score": 0.55,
+        "verdict": "偏多",
+        "confidence": "中",
+        "brief": "-2.24% ｜ 均线多头排列(MA5>10>20>60) ｜ RSI=63.1 偏强 ｜ 信号 +0.55 ｜ [偏多/中]"
+      },
+      {
+        "ticker": "MU",
+        "name": "Micron",
+        "reason": "存储芯片龙头",
+        "market": "us",
+        "code": "MU",
+        "actual_date": "2026-06-03",
+        "close": 1079.57,
+        "prev_close": 1064.1,
+        "pct_change": 1.4538107320740559,
+        "price_score": 0.2,
+        "tech_score_raw": 0.5,
+        "tech_score_weighted": 0.35,
+        "tech_rules": [
+          "均线多头排列(MA5>10>20>60) → +1",
+          "RSI=82.4 严重超买 → -1",
+          "接近布林上轨(BB%=0.98) → +0.3",
+          "MACD柱放大(23.895) → +0.2"
+        ],
+        "snapshot": {
+          "close": 1079.57,
+          "MA5": 1014.586,
+          "MA10": 914.231,
+          "MA20": 822.4440000000001,
+          "MA60": 567.9207833333332,
+          "RSI14": 82.35631034100905,
+          "BB_up": 1092.8869959899134,
+          "BB_mid": 822.4440000000001,
+          "BB_dn": 552.0010040100866,
+          "BB_pct": 0.9753792921477431,
+          "MACD_hist": 23.89461622372346,
+          "VOL_RATIO": 0.8001706235314856
+        },
+        "total_score": 0.55,
+        "verdict": "偏多",
+        "confidence": "中",
+        "brief": "+1.45% ｜ 均线多头排列(MA5>10>20>60) ｜ 接近布林上轨(BB%=0.98) ｜ 信号 +0.55 ｜ [偏多/中]"
+      }
+    ]
+  },
+  "factors": {
+    "categories": {
+      "technical": {
+        "items": [
+          {
+            "name": "5 日动量",
+            "value": "-12.76%",
+            "score": -0.0,
+            "remark": "回调",
+            "validation_key": "tech_momentum_5d",
+            "raw_score": -1.0,
+            "validation": {
+              "IC": 0.0358,
+              "IR": -0.3934,
+              "grade": "D",
+              "samples": 648,
+              "passes": false,
+              "direction_correct": true
+            },
+            "weight_multiplier": 0.0
+          },
+          {
+            "name": "20 日动量",
+            "value": "-2.92%",
+            "score": 0.0,
+            "remark": "中期横盘",
+            "validation_key": "tech_momentum_20d",
+            "raw_score": 0.0,
+            "validation": {
+              "IC": 0.0414,
+              "IR": -0.6487,
+              "grade": "C",
+              "samples": 633,
+              "passes": false,
+              "direction_correct": true
+            },
+            "weight_multiplier": 0.5
+          },
+          {
+            "name": "20 日波动率",
+            "value": "57.4%",
+            "score": -0.0,
+            "remark": "年化波动 57.4%（偏高）",
+            "validation_key": "tech_volatility",
+            "raw_score": -0.2,
+            "validation": {
+              "IC": 0.0585,
+              "IR": -0.0221,
+              "grade": "D",
+              "samples": 633,
+              "passes": false,
+              "direction_correct": true
+            },
+            "weight_multiplier": 0.0
+          },
+          {
+            "name": "量比(5/20日均量)",
+            "value": "1.08",
+            "score": 0.0,
+            "remark": "量比 1.08 平稳",
+            "validation_key": "tech_vol_ratio",
+            "raw_score": 0.0,
+            "validation": {
+              "IC": 0.1425,
+              "IR": 0.5151,
+              "grade": "B",
+              "samples": 634,
+              "passes": true,
+              "direction_correct": true
+            },
+            "weight_multiplier": 1.0
+          },
+          {
+            "name": "布林位置",
+            "value": "0.26",
+            "score": 0.0,
+            "remark": "BB%=0.26 布林通道中段",
+            "validation_key": "tech_boll_pct",
+            "raw_score": 0.0,
+            "validation": {
+              "IC": 0.044,
+              "IR": -0.2971,
+              "grade": "D",
+              "samples": 634,
+              "passes": false,
+              "direction_correct": true
+            },
+            "weight_multiplier": 0.0
+          }
+        ],
+        "category_score": 0.0,
+        "n_items_kept": 2,
+        "n_items_total": 5
+      },
+      "style": {
+        "items": [
+          {
+            "name": "PE(TTM) 3 年分位",
+            "value": "62.92x",
+            "score": 1.0,
+            "remark": "近 3 年 2% 分位（便宜）",
+            "validation_key": "style_pe_pct_3y",
+            "raw_score": 1.0,
+            "validation": {
+              "IC": -0.0685,
+              "IR": -0.8416,
+              "grade": "B",
+              "samples": 1470,
+              "passes": true,
+              "direction_correct": true
+            },
+            "weight_multiplier": 1.0
+          },
+          {
+            "name": "PB 3 年分位",
+            "value": "15.46x",
+            "score": 0.0,
+            "remark": "近 3 年 58% 分位（中性）",
+            "validation_key": "style_pb_pct_3y",
+            "raw_score": 0.0,
+            "validation": {
+              "IC": -0.0411,
+              "IR": -1.2256,
+              "grade": "C",
+              "samples": 1470,
+              "passes": false,
+              "direction_correct": true
+            },
+            "weight_multiplier": 0.5
+          },
+          {
+            "name": "PEG",
+            "value": "0.83",
+            "score": 0.5,
+            "remark": "PEG ≤ 1 合理偏低",
+            "validation_key": null,
+            "raw_score": 0.5,
+            "validation": null,
+            "weight_multiplier": 1.0
+          }
+        ],
+        "snapshot_date": "2026-06-04",
+        "category_score": 0.5,
+        "n_items_kept": 3,
+        "n_items_total": 3
+      },
+      "fundamental": {
+        "items": [
+          {
+            "name": "ROE(净资产收益率)",
+            "value": "6.97%",
+            "score": 0.0,
+            "remark": "ROE 一般",
+            "validation_key": null,
+            "raw_score": 0.0,
+            "validation": null,
+            "weight_multiplier": 1.0
+          },
+          {
+            "name": "资产负债率",
+            "value": "17.85%",
+            "score": 0.5,
+            "remark": "杠杆低、财务稳健",
+            "validation_key": null,
+            "raw_score": 0.5,
+            "validation": null,
+            "weight_multiplier": 1.0
+          },
+          {
+            "name": "净利润同比",
+            "value": "+57.15%",
+            "score": 1.0,
+            "remark": "净利同比 +57% 高速增长",
+            "validation_key": null,
+            "raw_score": 1.0,
+            "validation": null,
+            "weight_multiplier": 1.0
+          },
+          {
+            "name": "营收同比",
+            "value": "+36.22%",
+            "score": 1.0,
+            "remark": "营收同比 +36% 高增",
+            "validation_key": null,
+            "raw_score": 1.0,
+            "validation": null,
+            "weight_multiplier": 1.0
+          }
+        ],
+        "report_period": "2026-03-31",
+        "category_score": 0.625,
+        "n_items_kept": 4,
+        "n_items_total": 4
+      },
+      "relative_strength": {
+        "items": [
+          {
+            "name": "vs 行业当日 RS",
+            "value": "-5.27pct",
+            "score": -1.0,
+            "remark": "个股 -1.61% 显著弱于行业 +3.66%",
+            "validation_key": null,
+            "raw_score": -1.0,
+            "validation": null,
+            "weight_multiplier": 1.0
+          },
+          {
+            "name": "vs 上证 20 日 RS",
+            "value": "-1.35pct",
+            "score": 0.0,
+            "remark": "与大盘同步（-1.4pct）",
+            "validation_key": "rs_vs_index_20d",
+            "raw_score": 0.0,
+            "validation": {
+              "IC": 0.0484,
+              "IR": -0.5475,
+              "grade": "C",
+              "samples": 633,
+              "passes": false,
+              "direction_correct": true
+            },
+            "weight_multiplier": 0.5
+          }
+        ],
+        "category_score": -0.5,
+        "n_items_kept": 2,
+        "n_items_total": 2
+      }
+    },
+    "validation": {
+      "results": {
+        "tech_momentum_5d": {
+          "samples": 648,
+          "IC": 0.0358,
+          "IR": -0.3934,
+          "abs_IC": 0.0358,
+          "abs_IR": 0.3934,
+          "direction_correct": true,
+          "high_quantile_ret": 0.0235,
+          "low_quantile_ret": 0.0082,
+          "grade": "D",
+          "passes": false,
+          "rolling_window": 60,
+          "fwd_days": 5
+        },
+        "tech_momentum_20d": {
+          "samples": 633,
+          "IC": 0.0414,
+          "IR": -0.6487,
+          "abs_IC": 0.0414,
+          "abs_IR": 0.6487,
+          "direction_correct": true,
+          "high_quantile_ret": 0.0193,
+          "low_quantile_ret": 0.007,
+          "grade": "C",
+          "passes": false,
+          "rolling_window": 60,
+          "fwd_days": 5
+        },
+        "tech_volatility": {
+          "samples": 633,
+          "IC": 0.0585,
+          "IR": -0.0221,
+          "abs_IC": 0.0585,
+          "abs_IR": 0.0221,
+          "direction_correct": true,
+          "high_quantile_ret": 0.0224,
+          "low_quantile_ret": 0.0079,
+          "grade": "D",
+          "passes": false,
+          "rolling_window": 60,
+          "fwd_days": 5
+        },
+        "tech_vol_ratio": {
+          "samples": 634,
+          "IC": 0.1425,
+          "IR": 0.5151,
+          "abs_IC": 0.1425,
+          "abs_IR": 0.5151,
+          "direction_correct": true,
+          "high_quantile_ret": 0.0355,
+          "low_quantile_ret": 0.0021,
+          "grade": "B",
+          "passes": true,
+          "rolling_window": 60,
+          "fwd_days": 5
+        },
+        "tech_boll_pct": {
+          "samples": 634,
+          "IC": 0.044,
+          "IR": -0.2971,
+          "abs_IC": 0.044,
+          "abs_IR": 0.2971,
+          "direction_correct": true,
+          "high_quantile_ret": 0.0208,
+          "low_quantile_ret": 0.0078,
+          "grade": "D",
+          "passes": false,
+          "rolling_window": 60,
+          "fwd_days": 5
+        },
+        "style_pe_pct_3y": {
+          "samples": 1470,
+          "IC": -0.0685,
+          "IR": -0.8416,
+          "abs_IC": 0.0685,
+          "abs_IR": 0.8416,
+          "direction_correct": true,
+          "high_quantile_ret": -0.0071,
+          "low_quantile_ret": 0.0049,
+          "grade": "B",
+          "passes": true,
+          "rolling_window": 60,
+          "fwd_days": 5
+        },
+        "style_pb_pct_3y": {
+          "samples": 1470,
+          "IC": -0.0411,
+          "IR": -1.2256,
+          "abs_IC": 0.0411,
+          "abs_IR": 1.2256,
+          "direction_correct": true,
+          "high_quantile_ret": 0.008,
+          "low_quantile_ret": 0.0112,
+          "grade": "C",
+          "passes": false,
+          "rolling_window": 60,
+          "fwd_days": 5
+        },
+        "rs_vs_index_20d": {
+          "samples": 633,
+          "IC": 0.0484,
+          "IR": -0.5475,
+          "abs_IC": 0.0484,
+          "abs_IR": 0.5475,
+          "direction_correct": true,
+          "high_quantile_ret": 0.0152,
+          "low_quantile_ret": 0.0015,
+          "grade": "C",
+          "passes": false,
+          "rolling_window": 60,
+          "fwd_days": 5
+        }
+      },
+      "summary": {
+        "total": 8,
+        "passed": 2,
+        "passed_ratio": 0.25,
+        "grades": {
+          "A": 0,
+          "B": 2,
+          "C": 3,
+          "D": 3,
+          "?": 0
+        },
+        "mean_abs_IC": 0.06,
+        "mean_abs_IR": 0.5614
+      },
+      "thresholds": {
+        "IC": 0.06,
+        "IR": 0.5,
+        "grade_A": "IC≥0.10 + IR≥1.0",
+        "grade_B": "IC≥0.06 + IR≥0.5（通过）",
+        "grade_C": "仅一项通过（半权重）",
+        "grade_D": "都不达标（剔除）"
+      }
+    },
+    "category_scores": {
+      "technical": 0.0,
+      "style": 0.5,
+      "fundamental": 0.625,
+      "relative_strength": -0.5
+    },
+    "weighted_score": 0.15625,
+    "weights_used": {
+      "technical": 0.35,
+      "style": 0.2,
+      "fundamental": 0.25,
+      "relative_strength": 0.2
+    }
+  },
+  "options_flow": {
+    "available": false,
+    "score": 0.0,
+    "detail": "603893 非期权标的（A 股个股无个股期权），跳过"
+  },
+  "verdict": {
+    "score_total": -0.765,
+    "verdict": "弱偏空 →↘",
+    "confidence": "低",
+    "next_open": "2026-06-04 (Thu)",
+    "signals": [
+      {
+        "name": "当日涨跌",
+        "score": 0,
+        "detail": "窄幅 +0.37%"
+      },
+      {
+        "name": "技术指标(MA/RSI/BOLL/MACD)",
+        "score": -0.42,
+        "detail": "原始 -0.60 ×0.7 (价格跌破MA20(184.65); RSI=45.4 偏弱; MACD柱缩小转负(-2.279); 缩量上涨(量比0.70))"
+      },
+      {
+        "name": "资金流",
+        "score": -0.5,
+        "detail": "主力净额 -0.76 亿元 (eastmoney push2his)"
+      },
+      {
+        "name": "龙虎榜",
+        "score": 0,
+        "detail": "未上榜 (当日 91 只)"
+      },
+      {
+        "name": "LLM情感",
+        "score": 0.03,
+        "detail": "verdict=neutral(low) 原始 +0.3/5  事件 4 条 — 近期新闻多为榜单/板块资金流类噪音，缺乏个股实质性催化。一季报已公布且业绩平稳为偏正面背景，技术面突破年线略偏多，但板块资金流出和大宗折价交易构成扰动。整体无明"
+      },
+      {
+        "name": "多因子合成",
+        "score": 0.125,
+        "detail": "加权 +0.16 ×0.8 (technical=+0.00 | style=+0.50 | fundamental=+0.62 | relative_strength=-0.50)"
+      },
+      {
+        "name": "期权流(PCR/IV)",
+        "score": 0.0,
+        "detail": "603893 非期权标的（A 股个股无个股期权），跳过"
+      }
+    ]
+  }
+}

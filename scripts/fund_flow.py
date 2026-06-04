@@ -81,10 +81,11 @@ def fetch_with_fallback(code: str, market: str = "sh") -> tuple[pd.DataFrame | N
     """按顺序尝试三源，返回 (df, 来源名)"""
     market_id = 1 if market == "sh" else 0
     market_prefix = market.upper()
+    # 顺序按"单标的直查、快"优先：push2his → 雪球；同花顺要翻全市场上百页(慢)，放最后兜底
     sources = [
         ("eastmoney push2his", lambda: from_eastmoney_push2his(code, market_id, 20)),
-        ("同花顺(akshare)",     lambda: from_ths_via_akshare(code)),
         ("雪球",                 lambda: from_xueqiu(code, market_prefix, 30)),
+        ("同花顺(akshare)",     lambda: from_ths_via_akshare(code)),
     ]
     for name, fn in sources:
         try:

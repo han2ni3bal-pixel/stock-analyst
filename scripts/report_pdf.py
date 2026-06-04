@@ -848,3 +848,29 @@ def render_pdf(report: dict, out_dir: str, with_synthesis: bool = True) -> str:
     except OSError:
         pass
     return pdf_path
+
+
+def _main_cli() -> None:
+    """独立入口：从已保存的 report JSON 生成 PDF。
+
+    供 analyze.py 以分离子进程方式异步调用：
+        python report_pdf.py <report_json> <out_dir> [--no-synthesis]
+    """
+    args = [a for a in sys.argv[1:]]
+    with_syn = True
+    if "--no-synthesis" in args:
+        with_syn = False
+        args = [a for a in args if a != "--no-synthesis"]
+    if len(args) < 2:
+        print("usage: report_pdf.py <report_json> <out_dir> [--no-synthesis]",
+              file=sys.stderr)
+        sys.exit(2)
+    json_path, out_dir = args[0], args[1]
+    with open(json_path, "r", encoding="utf-8") as f:
+        report = json.load(f)
+    path = render_pdf(report, out_dir, with_synthesis=with_syn)
+    print(path)
+
+
+if __name__ == "__main__":
+    _main_cli()
