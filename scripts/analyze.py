@@ -35,6 +35,10 @@ from report_pdf import render_pdf
 from peer_scan import scan_peers, _suggest_peers
 from factor import compute_factors
 from options_flow import analyze_options_flow
+import info_store
+from info_adapters import sync_events
+from info_enrich import enrich_events
+from info_signal import compute_info_signal
 
 
 # ---------------- 资产抽象 ----------------
@@ -358,6 +362,41 @@ def signal_options_flow(asset: Asset, agg: Aggregator) -> dict:
     return res
 
 
+def signal_info_events(asset: Asset, agg: Aggregator) -> dict:
+    """信息面:增量同步公告/年报/季报/事件 → 防前视查询 → LLM 加工 → 事件面信号(cap ±0.6)。
+
+    信息储备层目前覆盖 A 股(东财公告)与美股(SEC EDGAR);ETF/港股暂不支持,0 分计入。
+    全程优雅降级:任一步失败都不阻断分析,信息面记 0 分并打印原因。
+    """
+    if asset.kind in ("etf", "hk"):
+        agg.add("信息面(公告/事件)", 0, "信息储备层暂覆盖 A股/美股,跳过")
+        return {"available": False}
+
+    mkt = asset.market_for_data  # sh/sz/us — 与适配器、库口径一致
+    try:
+        conn = info_store.connect()
+        info_store.init_db(conn)
+        n_new = sync_events(conn, asset.code, mkt, asset.name)
+        cards = info_store.query_events(conn, asset.code, mkt, end_date=asset.target_dash)
+        n_enriched = enrich_events(conn, [c for c in cards if not c.get("processed_at")], market=asset.kind)
+        if n_enriched:
+            cards = info_store.query_events(conn, asset.code, mkt, end_date=asset.target_dash)
+        conn.close()
+    except Exception as e:
+        agg.add("信息面(公告/事件)", 0, f"信息面失败: {type(e).__name__}: {str(e)[:80]}")
+        return {"available": False, "error": str(e)[:120]}
+
+    res = compute_info_signal(cards, asset.target_dash)
+    print(f"  同步新增 {n_new} 条;窗口内(≤{asset.target_dash}) {len(cards)} 条,本次加工 {n_enriched} 条")
+    for t in res.get("top", []):
+        print(f"    [{t['sentiment']:+.2f}×m{t['materiality']} → {t['contrib']:+.3f}] "
+              f"{t['date']} {t['type']} {t['title']}")
+    agg.add("信息面(公告/事件)", res["score"], res["detail"])
+    res["available"] = True
+    res["events"] = cards
+    return res
+
+
 # ---------------- 预测 ----------------
 
 def make_verdict(total_score: float) -> tuple[str, str]:
@@ -494,6 +533,7 @@ def run(asset: Asset, out_dir: str, skip_peers: bool = False,
                 target_name=asset.name, target_code=asset.code,
                 target_market=asset.kind, target_date=asset.target_date,
                 top_n=5, prefetched_rec=rec,
+                max_workers=int(os.getenv("STOCK_ANALYST_PEER_WORKERS", "1")),
             )
             report["peers"] = peers_data
             if peers_data and "error" not in peers_data:
@@ -517,7 +557,12 @@ def run(asset: Asset, out_dir: str, skip_peers: bool = False,
     section("9. 期权流（PCR / 隐含波动率）")
     report["options_flow"] = signal_options_flow(asset, agg)
 
-    section("10. 综合判断")
+    section("10. 信息面（公告 / 年报 / 季报 / 事件）")
+    info_res = signal_info_events(asset, agg)
+    report["info_events"] = info_res.get("events", [])
+    report["info_signal"] = {k: info_res.get(k) for k in ("score", "raw", "n_events", "n_processed", "top", "available")}
+
+    section("11. 综合判断")
     agg.show()
     verdict, conf = make_verdict(agg.total)
     nxt = next_open_date(asset.target_date)
@@ -535,7 +580,7 @@ def run(asset: Asset, out_dir: str, skip_peers: bool = False,
         json.dump(report, f, ensure_ascii=False, indent=2, default=str)
     print(f"\n  JSON → {out}")
 
-    section("11. 生成 PDF 报告")
+    section("12. 生成 PDF 报告")
     pdf_path = os.path.join(out_dir, f"report_{asset.code}_{asset.target_date}.pdf")
     if async_pdf:
         # 综述 LLM(~10-15s) + Chrome 渲染移到分离子进程，主流程不阻塞、立即返回结果。

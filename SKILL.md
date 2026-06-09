@@ -235,11 +235,20 @@ PDF 渲染依赖：`markdown` Python 包 + `matplotlib`（雷达图）+ Chrome /
 详见：
 - [data_sources.md](references/data_sources.md) — 各维度数据源优先级、调用方式、风控判断
 - [signal_logic.md](references/signal_logic.md) — 信号评分规则、聚合权重、走势映射阈值
+- [info_sources.md](references/info_sources.md) — **信息储备层(公告/年报/季报/IPO…)** 源清单与 EDGAR/代理细节
 
-## 信号合成顺序（v4 含期权流）
+> **信息储备层(P1+P2,已接入主流程)**:`scripts/info_store.py`(SQLite)+ `info_adapters.py`
+> (A股公告=东财、美股 filing=SEC EDGAR)+ `info_enrich.py`(LLM 加工)+ `info_signal.py`(事件面因子)。
+> 把公告/年报/季报/IPO 归一成「事件卡」落盘(增量同步、主键去重、`event_date<=target` 防前视),
+> 再由 LLM 标注 `sentiment(-1..1)/materiality(0..3)` → 事件面信号(cap ±0.6)进总信号 + PDF「十、信息面」章节。
+> `analyze.py` 会自动跑(§10 信息面);ETF/港股暂不覆盖。独立验收 CLI:
+> `python scripts/probe_info.py 603893 sh 20260608 瑞芯微` / `… AAPL us 20260608 Apple`。
+> **P3 待做**:全文 PDF 下载解析、A股调研/投资者问答/研报、美股 yfinance 财报日历。
+
+## 信号合成顺序（v5 含期权流 + 信息面）
 
 ```
-当日涨跌 + 技术指标(×0.7) + 资金流 + 龙虎榜 + LLM 情感(×置信度) + 多因子合成(weighted ×0.8) + 期权流(PCR/IV, cap ±0.6)
+当日涨跌 + 技术指标(×0.7) + 资金流 + 龙虎榜 + LLM 情感(×置信度) + 多因子合成(weighted ×0.8) + 期权流(PCR/IV, cap ±0.6) + 信息面(cap ±0.6)
                                                                   └─ 35% 技术 + 20% 风格 + 25% 基本面 + 20% 相对强度
                                                                      ↓ 每个时序因子先做 IC/IR 检验
                                                                      ↓ A/B 级全权 ｜ C 级半权 ｜ D 级剔除
@@ -247,6 +256,9 @@ PDF 渲染依赖：`markdown` Python 包 + `matplotlib`（雷达图）+ Chrome /
                                                                      类别内按通过因子均分聚合
 ↓
 信号合计 → 走势倾向（看多/偏多/弱偏多/震荡/弱偏空/偏空/看空）+ 置信度
+
+信息面 = Σ[ sentiment × (materiality/3) × exp(-days_ago/30) ]，clip 到 ±0.6
+         事件卡由信息储备层(公告/年报/季报/事件)经 LLM 标注 sentiment/materiality 得到
 ```
 
 ## 故障排查

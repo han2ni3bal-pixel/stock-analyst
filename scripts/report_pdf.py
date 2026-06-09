@@ -615,11 +615,39 @@ def _section_options(report: dict) -> str:
     return md
 
 
+def _section_info_events(report: dict) -> str:
+    """信息面:近期公告/年报/季报/事件(按影响力×情感排序 Top N)。"""
+    sig = report.get("info_signal") or {}
+    events = report.get("info_events") or []
+    if not sig and not events:
+        return ""
+    md = "## 十、信息面（公告 / 年报 / 季报 / 事件）\n\n"
+    if not sig.get("available", True):
+        return md + "> 信息储备层暂覆盖 A 股 / 美股,该标的跳过。\n\n"
+    md += (f"> **事件面信号**：`{sig.get('score', 0):+.2f}`（raw {sig.get('raw', 0):+.2f}，"
+           f"窗口内 {sig.get('n_events', 0)} 条，已加工 {sig.get('n_processed', 0)} 条）\n\n")
+
+    # 已加工、有方向的卡按 |情感×影响力| 排序取 Top
+    scored = [e for e in events if e.get("sentiment") is not None and e.get("materiality") is not None]
+    scored.sort(key=lambda e: abs(float(e["sentiment"]) * (float(e["materiality"]) + 0.1)), reverse=True)
+    if scored:
+        md += "| 日期 | 类型 | 影响力 | 情感 | 摘要 |\n|---|---|---|---|---|\n"
+        for e in scored[:12]:
+            sent = float(e["sentiment"])
+            arrow = "↑" if sent > 0.1 else ("↓" if sent < -0.1 else "·")
+            summ = (e.get("summary") or e.get("title") or "")[:48]
+            md += f"| {e.get('event_date','')} | {e.get('type','')} | {e.get('materiality')} | {arrow}{sent:+.2f} | {summ} |\n"
+        md += "\n"
+    else:
+        md += "> 窗口内无已加工事件。\n\n"
+    return md
+
+
 def _section_verdict(report: dict) -> str:
     v = report.get("verdict") or {}
     if not v:
         return ""
-    md = "## 十、综合判断 — 信号合计与走势倾向\n\n"
+    md = "## 十一、综合判断 — 信号合计与走势倾向\n\n"
     signals = v.get("signals") or []
     if signals:
         md += "| 维度 | 得分 | 说明 |\n|---|---|---|\n"
@@ -673,6 +701,10 @@ def _llm_synthesis(report: dict) -> str:
                          if k in ("available", "pcr_volume", "pcr_oi", "iv",
                                   "iv_chg_5d", "iv_percentile_1y", "score", "detail")},
         "verdict": report.get("verdict"),
+        "info_events": {
+            **{k: (report.get("info_signal") or {}).get(k) for k in ("score", "raw", "n_events", "available")},
+            "top": (report.get("info_signal") or {}).get("top"),
+        },
         "info_brief": {k: v for k, v in (report.get("info") or {}).items()
                        if k in ("市值", "市盈率TTM", "市净率", "52周高", "52周低", "行业")},
         "factors": {
@@ -808,6 +840,7 @@ def build_markdown(report: dict, with_synthesis: bool = True) -> str:
         _section_factors(report),
         _section_peers(report),
         _section_options(report),
+        _section_info_events(report),
         _section_verdict(report),
     ]
     if with_synthesis:
