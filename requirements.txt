@@ -2,15 +2,14 @@
 # Python 3.10+ required
 
 # Core data
-akshare>=1.18
+akshare>=1.18  # A 股新闻源
 pandas>=2.0
-requests>=2.31  # itick HTTP 客户端（付费源 P2 兜底）；信息储备层 EDGAR 也用它
+requests>=2.31  # Finnhub HTTP 客户端；信息储备层 EDGAR 也用它
 PySocks>=1.7  # 信息储备层访问 SEC EDGAR 走 SOCKS5 系统代理时需要（requests[socks]）
+tickflow[all]  # Tickflow 行情 / K 线 / 标的信息主源
 
 # Markets
-yfinance>=0.2  # 美股数据；需要代理才能稳定访问 Yahoo Finance
-# itick (https://api0.itick.org) — 美股 K 线 / info P2 兜底，仅需 requests，无独立 SDK
-# 设置 STOCK_ANALYST_ITICK_TOKEN 环境变量启用
+yfinance>=0.2  # 美股盘前 / 盘后数据；需要代理才能稳定访问 Yahoo Finance
 
 # LLM 情感分析 + PDF 综合解读
 anthropic>=0.40

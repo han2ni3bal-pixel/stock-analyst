@@ -1,19 +1,10 @@
 """按 kind 分派数据获取 — A 股 / 港股 / ETF / 美股。
 
-各源调用细节：
-- A 股 K 线  : ak.stock_zh_a_daily(symbol='sh603893', adjust='qfq')   新浪
-- 港股 K 线 : ak.stock_hk_daily(symbol='01810', adjust='qfq')          雪球
-- ETF K 线  : ak.fund_etf_hist_em(symbol='510300', adjust='qfq')      东财 datacenter
-- 美股 K 线 : ak.stock_us_hist(symbol='105.AAPL', adjust='qfq')        东财，secid 前缀 105/106/107 任一
-              P1 fallback: yfinance.Ticker(code).history(...)（需走代理）
-              P2 fallback: itick /stock/kline (需 STOCK_ANALYST_ITICK_TOKEN，付费源不走代理)
-
-新闻：A 股 / 港股 走东财 ak.stock_news_em；美股走 yfinance.Ticker.news；
-      所有市场 fallback：调 Claude（联网或非联网都跑一次）让 LLM 列出 5-10 条近期新闻。
-
-⚠️  跨境数据源（yfinance / Yahoo Finance）受网络环境影响，**调用前需要应用代理**；
-    国内源（akshare 中转的 sina / xueqiu / 东财）相反，必须**清空进程级代理**避免被 macOS 系统代理误伤。
-    itick 直连 api0.itick.org，session.trust_env=False 不受系统代理污染。
+当前数据源策略：
+- 行情 / K 线 / 基本信息：Tickflow 作为第一股市信息源。
+- 美股实时：盘中使用 Tickflow；盘前 / 盘后使用 yfinance prepost 数据。
+- 新闻：A 股用 akshare；美股用 Finnhub；港股沿用 akshare；主源为空时用 Claude LLM 兜底。
+- 其他旧行情源（东财 / 新浪 / 雪球 / itick 等）不再作为 fallback。
 """
 from __future__ import annotations
 
@@ -149,285 +140,199 @@ def normalize_kline(df: pd.DataFrame) -> pd.DataFrame:
     return df[keep].sort_values("date").reset_index(drop=True)
 
 
-# ---------------- itick 付费数据源（美股 K 线 + info 兜底） ----------------
+# ---------------- Tickflow 行情主源 ----------------
 
-_ITICK_BASE_URL = "https://api0.itick.org"
-_ITICK_SESSION = None
+_TICKFLOW_DEFAULT_TOKEN = "tk_1ee21297714f43aba88e7c7ede4e8645"
+_TICKFLOW_CLIENT = None
+
+# Finnhub 美股新闻源。按用户要求内置；也允许用环境变量覆盖。
+_FINNHUB_DEFAULT_TOKEN = "d8m1pk9r01qkiso51n1gd8m1pk9r01qkiso51n20"
+_FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 
 
-def _itick_token() -> str:
-    return (os.environ.get("STOCK_ANALYST_ITICK_TOKEN", "") or "").strip()
+def _tickflow_token() -> str:
+    return (os.environ.get("STOCK_ANALYST_TICKFLOW_TOKEN", "") or _TICKFLOW_DEFAULT_TOKEN).strip()
 
 
-def _itick_region(kind: str, code: str, market: str = "") -> str:
-    """itick region 码：美股 US / 港股 HK / A 股按交易所 SH|SZ（不能用 CN）。"""
+def _finnhub_token() -> str:
+    return (os.environ.get("STOCK_ANALYST_FINNHUB_TOKEN", "") or _FINNHUB_DEFAULT_TOKEN).strip()
+
+
+def _tickflow_client():
+    """Tickflow 客户端：优先尝试 token，失败则使用免费服务。"""
+    global _TICKFLOW_CLIENT
+    if _TICKFLOW_CLIENT is not None:
+        return _TICKFLOW_CLIENT
+    from tickflow import TickFlow
+    token = _tickflow_token()
+    if token:
+        for factory in (
+            lambda: TickFlow(api_key=token),
+            lambda: TickFlow(token=token),
+            lambda: TickFlow.default(api_key=token),
+        ):
+            try:
+                _TICKFLOW_CLIENT = factory()
+                return _TICKFLOW_CLIENT
+            except Exception:
+                continue
+    _TICKFLOW_CLIENT = TickFlow.free()
+    return _TICKFLOW_CLIENT
+
+
+def _tickflow_symbol(kind: str, code: str, market: str = "") -> str:
     if kind == "us":
-        return "US"
+        code_u = code.upper()
+        return code_u if "." in code_u else f"{code_u}.US"
     if kind == "hk":
-        return "HK"
-    # A 股：优先用调用方传入的 market（sh/sz），否则按代码段判断
-    m = (market or "").upper()
-    if m in ("SH", "SZ"):
-        return m
-    return "SH" if str(code)[:1] in ("6", "9") else "SZ"
+        return f"{str(code).lstrip('0') or '0'}.HK"
+    suffix = "SH" if (market == "sh" or str(code).startswith(("5", "6", "9"))) else "SZ"
+    return f"{code}.{suffix}"
 
 
-def _itick_code(kind: str, code: str) -> str:
-    """itick 代码格式：美股大写；港股去前导零（00700→700）；A 股原样。"""
-    if kind == "us":
-        return code.upper()
-    if kind == "hk":
-        return str(code).lstrip("0") or "0"
-    return str(code)
+def _normalize_tickflow_kline(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+    renamed = df.rename(columns={
+        "trade_date": "date", "datetime": "date", "time": "date", "ts": "date",
+        "Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume",
+        "o": "open", "h": "high", "l": "low", "c": "close", "v": "volume",
+    }).copy()
+    if "date" not in renamed.columns and "timestamp" in renamed.columns:
+        renamed["date"] = pd.to_datetime(renamed["timestamp"], unit="ms", errors="coerce")
+    if "date" not in renamed.columns and isinstance(renamed.index, pd.DatetimeIndex):
+        renamed = renamed.reset_index().rename(columns={renamed.index.name or "index": "date"})
+    return normalize_kline(renamed)
 
 
-def _itick_session():
-    """itick 直连：trust_env=False 不走系统代理，避免被国内代理打回去。"""
-    global _ITICK_SESSION
-    if _ITICK_SESSION is not None:
-        return _ITICK_SESSION
-    import requests
-    s = requests.Session()
-    s.trust_env = False
-    s.headers.update({"accept": "application/json", "token": _itick_token()})
-    _ITICK_SESSION = s
-    return s
-
-
-def _itick_get(path: str, params: dict, max_retries: int = 3) -> dict:
-    """带重试的 itick GET；非 0 code 抛 RuntimeError。"""
-    if not _itick_token():
-        raise RuntimeError("STOCK_ANALYST_ITICK_TOKEN 未配置")
-    url = f"{_ITICK_BASE_URL}{path}"
-    delay = 1.0
-    last_exc: Exception | None = None
-    for attempt in range(max_retries):
-        try:
-            resp = _itick_session().get(url, params=params, timeout=30)
-            if not resp.ok:
-                logger.warning(f"itick HTTP {resp.status_code}: {resp.text[:300]}")
-            resp.raise_for_status()
-            data = resp.json()
-            if data.get("code") != 0:
-                raise RuntimeError(f"itick code={data.get('code')} msg={data.get('msg')}")
-            return data
-        except Exception as e:
-            last_exc = e
-            if attempt < max_retries - 1:
-                time.sleep(delay)
-                delay = min(delay * 2, 10)
-    raise last_exc  # type: ignore[misc]
-
-
-def _fetch_kline_itick(code: str, s_dash: str, e_dash: str,
-                       region: str = "US") -> Optional[pd.DataFrame]:
-    """itick 日 K 线兜底（region: US/HK/SH/SZ）。kType=8 = daily。
-
-    注意：itick 返回的是未复权价，与免费源的前复权 (qfq) 口径不同，仅作兜底用。
-    """
-    if not _itick_token():
-        return None
+def _fetch_kline_tickflow(kind: str, code: str, market: str, s_dash: str,
+                          e_dash: str, lookback: int) -> Optional[pd.DataFrame]:
+    symbol = _tickflow_symbol(kind, code, market)
     try:
-        d_start = datetime.strptime(s_dash, "%Y-%m-%d")
-        d_end = datetime.strptime(e_dash, "%Y-%m-%d")
-        days = max((d_end - d_start).days, 1)
-        limit = min(int(days * 1.4), 2000)
-    except Exception:
-        limit = 1000
-    try:
-        data = _itick_get("/stock/kline", {
-            "region": region, "code": code, "kType": 8, "limit": limit,
-        })
+        df = _tickflow_client().klines.get(symbol, period="1d", count=max(lookback * 2, 120), as_dataframe=True)
     except Exception as e:
-        logger.warning(f"itick kline 失败 {region} {code}: {e}")
+        print(f"  [Tickflow K 线失败] {type(e).__name__}: {str(e)[:100]}")
         return None
-    bars = data.get("data") or []
-    if not bars:
-        return None
-    rows = []
-    for b in bars:
-        ts = b.get("t", 0)
-        try:
-            d = datetime.fromtimestamp(int(ts) / 1000).strftime("%Y-%m-%d")
-        except Exception:
-            continue
-        if d < s_dash or d > e_dash:
-            continue
-        rows.append({
-            "date": d,
-            "open": b.get("o"), "high": b.get("h"),
-            "low":  b.get("l"), "close": b.get("c"),
-            "volume": b.get("v"),
-        })
-    if not rows:
-        return None
-    print(f"  ✓ itick /stock/kline ({region} {code}) {len(rows)} 条")
-    return normalize_kline(pd.DataFrame(rows))
-
-
-def _fetch_kline_us_itick(code: str, s_dash: str, e_dash: str) -> Optional[pd.DataFrame]:
-    """美股 itick K 线兜底（兼容旧调用）。"""
-    return _fetch_kline_itick(code.upper(), s_dash, e_dash, region="US")
-
-
-def _fetch_info_itick(code: str, region: str = "US") -> Optional[pd.DataFrame]:
-    """itick info → 转成 (item, value)。region: US/HK/SH/SZ。"""
-    if not _itick_token():
+    if df is None or df.empty:
         return None
     try:
-        data = _itick_get("/stock/info", {"type": "stock", "region": region, "code": code})
+        out = _normalize_tickflow_kline(df)
+        out = out[(out["date"] >= s_dash) & (out["date"] <= e_dash)]
+        if out.empty:
+            return None
+        print(f"  ✓ Tickflow K 线 {symbol} {len(out)} 条")
+        return out
     except Exception as e:
-        logger.warning(f"itick info 失败 {region} {code}: {e}")
+        print(f"  [Tickflow K 线格式异常] {type(e).__name__}: {str(e)[:100]}")
         return None
-    d = data.get("data") or {}
-    if not d:
+
+
+def _fetch_info_tickflow(kind: str, code: str, market: str) -> Optional[pd.DataFrame]:
+    symbol = _tickflow_symbol(kind, code, market)
+    try:
+        instruments = _tickflow_client().instruments.batch(symbols=[symbol])
+    except Exception as e:
+        print(f"  [Tickflow 标的信息失败] {type(e).__name__}: {str(e)[:100]}")
         return None
+    if not instruments:
+        return None
+    inst = instruments[0]
     keep = [
-        ("名称", d.get("n")),
-        ("代码", code),
-        ("行业", d.get("i") or d.get("s")),
-        ("交易所", d.get("e")),
-        ("简介", str(d.get("bd") or "")[:500]),
+        ("名称", inst.get("name")),
+        ("代码", inst.get("symbol") or symbol),
+        ("行业", inst.get("industry") or inst.get("sector")),
+        ("交易所", inst.get("exchange") or inst.get("market")),
+        ("币种", inst.get("currency")),
+        ("类型", inst.get("type")),
+        ("简介", str(inst.get("description") or "")[:500]),
     ]
     rows = [(k, v) for k, v in keep if v not in (None, "", 0)]
     if not rows:
         return None
-    print(f"  ✓ itick /stock/info ({region} {code})")
+    print(f"  ✓ Tickflow 标的信息 {symbol}")
     return pd.DataFrame(rows, columns=["item", "value"])
 
 
-def _fetch_info_us_itick(code: str) -> Optional[pd.DataFrame]:
-    """美股 itick info 兜底（兼容旧调用）。"""
-    return _fetch_info_itick(code.upper(), region="US")
+def _fetch_realtime_tickflow(kind: str, code: str, market: str = "") -> Optional[dict]:
+    symbol = _tickflow_symbol(kind, code, market)
+    try:
+        df = _tickflow_client().klines.get(symbol, period="1m", count=1, as_dataframe=True)
+    except Exception:
+        try:
+            df = _tickflow_client().klines.get(symbol, period="1d", count=1, as_dataframe=True)
+        except Exception as e:
+            logger.warning(f"Tickflow quote 失败 {symbol}: {e}")
+            return None
+    if df is None or df.empty:
+        return None
+    try:
+        row = _normalize_tickflow_kline(df).iloc[-1]
+        prev_close = float(row.get("close")) if row.get("close") is not None else None
+        return {
+            "price": row.get("close"), "open": row.get("open"), "high": row.get("high"),
+            "low": row.get("low"), "change": None, "change_pct": None,
+            "volume": row.get("volume"), "turnover": None, "ts_ms": None,
+            "region": kind, "source": "tickflow", "prev_close": prev_close,
+        }
+    except Exception as e:
+        logger.warning(f"Tickflow quote 格式异常 {symbol}: {e}")
+        return None
+
+
+def _fetch_realtime_us_yfinance(code: str) -> Optional[dict]:
+    try:
+        _apply_proxy_for_yfinance()
+        import yfinance as yf
+        df = _retry(lambda: yf.Ticker(code.upper()).history(period="1d", interval="1m", prepost=True),
+                    max_retries=2, label="yf.prepost")
+    except Exception as e:
+        logger.warning(f"yfinance prepost 失败 {code}: {e}")
+        return None
+    if df is None or df.empty:
+        return None
+    try:
+        row = df.reset_index().iloc[-1]
+        return {
+            "price": row.get("Close"), "open": row.get("Open"), "high": row.get("High"),
+            "low": row.get("Low"), "change": None, "change_pct": None,
+            "volume": row.get("Volume"), "turnover": None, "ts_ms": None,
+            "region": "us", "source": "yfinance-prepost",
+        }
+    except Exception:
+        return None
+
+
+def _is_us_regular_session_now() -> bool:
+    try:
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo("America/New_York"))
+    except Exception:
+        return False
+    if now.weekday() >= 5:
+        return False
+    t = now.time()
+    return t >= datetime.strptime("09:30", "%H:%M").time() and t <= datetime.strptime("16:00", "%H:%M").time()
 
 
 def fetch_realtime(kind: str, code: str, market: str = "") -> Optional[dict]:
-    """itick /stock/quote 实时报价（盘中最新价/涨跌幅/成交量）。
-
-    仅在配了 token 时可用；返回 None 表示不可用。盘后返回的是上一交易日快照。
-    """
-    if not _itick_token():
-        return None
-    region = _itick_region(kind, code, market)
-    icode = _itick_code(kind, code)
-    try:
-        data = _itick_get("/stock/quote", {"region": region, "code": icode})
-    except Exception as e:
-        logger.warning(f"itick quote 失败 {region} {icode}: {e}")
-        return None
-    q = data.get("data") or {}
-    if not q or q.get("ld") in (None, 0):
-        return None
-    return {
-        "price":      q.get("ld"),
-        "open":       q.get("o"),
-        "high":       q.get("h"),
-        "low":        q.get("l"),
-        "change":     q.get("ch"),
-        "change_pct": q.get("chp"),
-        "volume":     q.get("v"),
-        "turnover":   q.get("tu"),
-        "ts_ms":      q.get("t"),
-        "region":     region,
-    }
-
-
-# ---------------- 美股 secid 候选 ----------------
-
-def _us_secid_candidates(code: str) -> list[str]:
-    """东财美股 hist 接口的 secid 候选，形如 105.AAPL / 106.AAPL / 107.AAPL。
-
-    105 = NASDAQ, 106 = NYSE, 107 = AMEX；同一 code 可能仅其中一个能命中。
-    """
-    code = code.upper()
-    if "." in code:
-        return [code]
-    return [f"{p}.{code}" for p in ("105", "106", "107")]
+    """实时报价：美股盘中用 Tickflow；盘前 / 盘后用 yfinance prepost。"""
+    if kind == "us" and not _is_us_regular_session_now():
+        yf_quote = _fetch_realtime_us_yfinance(code)
+        if yf_quote is not None:
+            return yf_quote
+    return _fetch_realtime_tickflow(kind, code, market)
 
 
 # ---------------- 基本信息 ----------------
 
 def fetch_info(kind: str, code: str, market: str) -> Optional[pd.DataFrame]:
     """返回 (item, value) 两列的 DataFrame。"""
-    try:
-        if kind == "astock":
-            sym = f"{market.upper()}{code}"
-            try:
-                with _without_system_proxy():
-                    df = ak.stock_individual_basic_info_xq(symbol=sym)
-                if df is not None and not df.empty:
-                    return df
-            except Exception as e:
-                print(f"  [info 雪球失败] {type(e).__name__}: {str(e)[:80]}")
-            return _fetch_info_itick(code, _itick_region(kind, code, market))
-        if kind == "hk":
-            try:
-                with _without_system_proxy():
-                    df = ak.stock_individual_basic_info_xq(symbol=f"HK{code}")
-                if df is not None and not df.empty:
-                    return df
-            except Exception as e:
-                print(f"  [info 雪球失败] {type(e).__name__}: {str(e)[:80]}")
-            return _fetch_info_itick(_itick_code("hk", code), "HK")
-        if kind == "etf":
-            with _without_system_proxy():
-                spot = ak.fund_etf_spot_em()
-            sub = spot[spot["代码"].astype(str) == code]
-            if sub.empty:
-                return None
-            row = sub.iloc[0]
-            keep = ["代码", "名称", "最新价", "涨跌幅", "成交额", "换手率",
-                    "流通市值", "总市值", "最新份额", "数据日期"]
-            data = [(k, row.get(k)) for k in keep if k in row]
-            return pd.DataFrame(data, columns=["item", "value"])
-        if kind == "us":
-            return _fetch_info_us(code)
-    except Exception as e:
-        print(f"  [info 失败] {type(e).__name__}: {str(e)[:100]}")
-    return None
+    return _fetch_info_tickflow(kind, code, market)
 
 
 def _fetch_info_us(code: str) -> Optional[pd.DataFrame]:
-    """美股基本信息：先试 yfinance.Ticker.info（走代理），失败再降级到 ak.stock_individual_basic_info_us_xq。"""
-    code_u = code.upper()
-    # P0: yfinance
-    try:
-        _apply_proxy_for_yfinance()
-        import yfinance as yf
-        info = _retry(lambda: yf.Ticker(code_u).info, max_retries=2, label="yf.info")
-        if info and (info.get("shortName") or info.get("longName")):
-            keep_keys = [
-                ("名称",      info.get("shortName") or info.get("longName")),
-                ("代码",      code_u),
-                ("行业",      info.get("industry") or info.get("sector")),
-                ("市值",      info.get("marketCap")),
-                ("市盈率TTM", info.get("trailingPE")),
-                ("市净率",    info.get("priceToBook")),
-                ("最新价",    info.get("currentPrice") or info.get("regularMarketPrice")),
-                ("52周高",    info.get("fiftyTwoWeekHigh")),
-                ("52周低",    info.get("fiftyTwoWeekLow")),
-                ("交易所",    info.get("exchange")),
-                ("简介",      (info.get("longBusinessSummary") or "")[:500]),
-            ]
-            data = [(k, v) for k, v in keep_keys if v not in (None, "", 0)]
-            return pd.DataFrame(data, columns=["item", "value"])
-    except Exception as e:
-        logger.warning(f"yfinance info 失败 {code}: {e}")
-
-    # P1: 雪球（akshare 中转）
-    try:
-        with _without_system_proxy():
-            df = ak.stock_individual_basic_info_us_xq(symbol=code_u)
-        if df is not None and not df.empty:
-            return df
-    except Exception as e:
-        logger.warning(f"xueqiu US info 失败 {code}: {e}")
-
-    # P2: itick（付费源，需要 STOCK_ANALYST_ITICK_TOKEN）
-    df = _fetch_info_us_itick(code_u)
-    if df is not None and not df.empty:
-        return df
-    return None
+    """兼容旧调用：美股基本信息统一走 Tickflow。"""
+    return _fetch_info_tickflow("us", code, "us")
 
 
 # ---------------- K 线 ----------------
@@ -437,105 +342,20 @@ def fetch_kline(kind: str, code: str, market: str, target_date: str,
     """target_date: YYYYMMDD。返回标准化 K 线（按日期升序）。"""
     end = datetime.strptime(target_date, "%Y%m%d") + timedelta(days=2)
     start = end - timedelta(days=lookback * 2)
-    s_str, e_str = start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
     s_dash, e_dash = start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
-
-    if kind == "us":
-        return _fetch_kline_us(code, s_str, e_str, s_dash, e_dash)
-    if kind == "astock":
-        return _fetch_kline_astock(code, market, s_str, e_str, s_dash, e_dash)
-    if kind == "hk":
-        return _fetch_kline_hk(code, start, end, s_dash, e_dash)
-
-    if kind == "etf":
-        try:
-            with _without_system_proxy():
-                df = ak.fund_etf_hist_em(symbol=code, period="daily",
-                                         start_date=s_str, end_date=e_str, adjust="qfq")
-        except Exception as e:
-            print(f"  [K 线失败] {type(e).__name__}: {str(e)[:100]}")
-            return None
-        if df is None or df.empty:
-            return None
-        return normalize_kline(df)
-    return None
-
-
-def _fetch_kline_astock(code: str, market: str, s_str: str, e_str: str,
-                        s_dash: str, e_dash: str) -> Optional[pd.DataFrame]:
-    """A 股日 K 线：新浪（qfq）优先，失败/为空再降级 itick（未复权，需 token）。"""
-    try:
-        with _without_system_proxy():
-            df = ak.stock_zh_a_daily(symbol=f"{market}{code}",
-                                     start_date=s_str, end_date=e_str, adjust="qfq")
-        if df is not None and not df.empty:
-            return normalize_kline(df)
-    except Exception as e:
-        print(f"  [A 股新浪 K 线失败] {type(e).__name__}: {str(e)[:80]}")
-    return _fetch_kline_itick(code, s_dash, e_dash, _itick_region("astock", code, market))
-
-
-def _fetch_kline_hk(code: str, start: datetime, end: datetime,
-                    s_dash: str, e_dash: str) -> Optional[pd.DataFrame]:
-    """港股日 K 线：雪球（qfq）优先，失败/为空再降级 itick（未复权，需 token）。"""
-    try:
-        with _without_system_proxy():
-            df = ak.stock_hk_daily(symbol=code, adjust="qfq")
-        df = df[(df["date"] >= start.date()) & (df["date"] <= end.date())]
-        if df is not None and not df.empty:
-            return normalize_kline(df)
-    except Exception as e:
-        print(f"  [港股雪球 K 线失败] {type(e).__name__}: {str(e)[:80]}")
-    return _fetch_kline_itick(_itick_code("hk", code), s_dash, e_dash, "HK")
+    return _fetch_kline_tickflow(kind, code, market, s_dash, e_dash, lookback)
 
 
 def _fetch_kline_us(code: str, s_str: str, e_str: str,
                     s_dash: str, e_dash: str) -> Optional[pd.DataFrame]:
-    """美股 K 线：先试东财（不走代理），失败再降级到 yfinance（走代理）。"""
-    code_u = code.upper()
-    # P0: 东财（akshare 中转）
-    with _without_system_proxy():
-        for sym in _us_secid_candidates(code_u):
-            try:
-                df = _retry(
-                    lambda s=sym: ak.stock_us_hist(
-                        symbol=s, period="daily",
-                        start_date=s_str, end_date=e_str, adjust="qfq",
-                    ),
-                    max_retries=1, label=f"ak.stock_us_hist[{sym}]",
-                )
-                if df is not None and not df.empty:
-                    print(f"  ✓ 东财 stock_us_hist (secid {sym})")
-                    return normalize_kline(df)
-            except Exception as e:
-                logger.debug(f"akshare US {sym} 失败: {e}")
-
-    # P1: yfinance
-    try:
-        _apply_proxy_for_yfinance()
-        import yfinance as yf
-        df = _retry(
-            lambda: yf.Ticker(code_u).history(start=s_dash, end=e_dash),
-            max_retries=3, label="yf.history",
-        )
-        if df is not None and not df.empty:
-            df = df.reset_index()
-            print(f"  ✓ yfinance.Ticker({code_u}).history")
-            return normalize_kline(df)
-    except Exception as e:
-        print(f"  [yfinance K 线失败] {type(e).__name__}: {str(e)[:100]}")
-
-    # P2: itick（付费源兜底，需要 STOCK_ANALYST_ITICK_TOKEN）
-    df = _fetch_kline_us_itick(code_u, s_dash, e_dash)
-    if df is not None and not df.empty:
-        return df
-    return None
+    """兼容旧调用：美股 K 线统一走 Tickflow。"""
+    return _fetch_kline_tickflow("us", code, "us", s_dash, e_dash, 120)
 
 
 # ---------------- 新闻 ----------------
 
 def fetch_news(kind: str, code: str, name: str = "") -> Optional[pd.DataFrame]:
-    """ETF 没有公司新闻；A 股/港股用东财；美股用 yfinance Ticker.news。
+    """ETF 没有公司新闻；A 股/港股用 akshare；美股用 Finnhub。
 
     任一主源取空/异常都会再走一次 LLM 兜底（Claude 列出近期新闻）。
     `name` 仅在 LLM 兜底时用作 prompt 上下文，主源不依赖。
@@ -547,7 +367,6 @@ def fetch_news(kind: str, code: str, name: str = "") -> Optional[pd.DataFrame]:
         if kind == "us":
             df = _fetch_news_us(code)
         else:
-            # A 股 + 港股
             with _without_system_proxy():
                 df = ak.stock_news_em(symbol=code)
     except Exception as e:
@@ -650,62 +469,52 @@ def _fetch_news_via_llm(code: str, name: str = "", market: str = "astock",
 
 
 def _fetch_news_us(code: str, limit: int = 30) -> Optional[pd.DataFrame]:
-    """yfinance.Ticker.news → 转成与东财格式兼容的 DataFrame（列名：标题/发布时间/文章来源/内容）。
-
-    sentiment_llm 通过子串 '标题'/'内容'/'时间' 匹配列名，所以保持中文列名即可，
-    内容本身可以是英文，Claude 双语都能处理。
-    """
-    _apply_proxy_for_yfinance()
-    import yfinance as yf
-    raw = _retry(lambda: yf.Ticker(code.upper()).news, max_retries=2, label="yf.news")
+    """Finnhub company-news → 转成与东财格式兼容的 DataFrame（列名：标题/发布时间/文章来源/内容）。"""
+    token = _finnhub_token()
+    if not token:
+        return None
+    import requests
+    end = datetime.today().date()
+    start = end - timedelta(days=7)
+    try:
+        resp = requests.get(
+            f"{_FINNHUB_BASE_URL}/company-news",
+            params={"symbol": code.upper(), "from": start.isoformat(), "to": end.isoformat(), "token": token},
+            timeout=20,
+        )
+        resp.raise_for_status()
+        raw = resp.json()
+    except Exception as e:
+        logger.warning(f"Finnhub news 失败 {code}: {e}")
+        return None
     if not raw:
         return None
     rows = []
     for item in raw[:limit]:
-        # yfinance >= 0.2.55 把内容包在 content 字段里
-        content = item.get("content") or item
-        pub_date = content.get("pubDate") or content.get("providerPublishTime", 0)
-        if isinstance(pub_date, (int, float)):
-            ts = datetime.fromtimestamp(int(pub_date)).strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            ts = str(pub_date)[:19] if pub_date else ""
-        title = content.get("title") or item.get("title", "")
-        provider = (content.get("provider") or {}).get("displayName") or item.get("publisher", "")
-        summary = content.get("summary") or content.get("description", "")
+        ts_raw = item.get("datetime")
+        try:
+            ts = datetime.fromtimestamp(int(ts_raw)).strftime("%Y-%m-%d %H:%M:%S") if ts_raw else ""
+        except Exception:
+            ts = ""
         rows.append({
-            "标题": title,
+            "标题": item.get("headline", ""),
             "发布时间": ts,
-            "文章来源": provider,
-            "内容": summary,
+            "文章来源": item.get("source", "Finnhub"),
+            "内容": item.get("summary", ""),
         })
     if not rows:
         return None
+    print(f"  ✓ Finnhub company-news {len(rows)} 条")
     return pd.DataFrame(rows)
 
 
 # ---------------- 资金流（仅 A 股 / ETF） ----------------
 
 def fetch_etf_fund_flow(code: str, target_dash: str) -> Optional[float]:
-    """从 fund_etf_spot_em 拿当日 ETF 主力净流入（元）。注意只有当下快照。"""
-    try:
-        with _without_system_proxy():
-            spot = ak.fund_etf_spot_em()
-    except Exception:
-        return None
-    sub = spot[spot["代码"].astype(str) == code]
-    if sub.empty:
-        return None
-    row = sub.iloc[0]
-    dd = pd.to_datetime(row.get("数据日期")).strftime("%Y-%m-%d")
-    if dd != target_dash:
-        return None
-    return float(row.get("主力净流入-净额", 0))
+    """ETF 资金流旧外部源已禁用。"""
+    return None
 
 
 def fetch_southbound_summary() -> Optional[pd.DataFrame]:
-    """南向资金当日净买入 — 港股市场情绪整体参考。"""
-    try:
-        with _without_system_proxy():
-            return ak.stock_hsgt_hist_em(symbol="南向资金")
-    except Exception:
-        return None
+    """南向资金旧外部源已禁用。"""
+    return None

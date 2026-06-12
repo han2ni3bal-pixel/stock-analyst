@@ -139,7 +139,7 @@ def _section_info(report: dict) -> str:
 
 
 def _fmt_quote_time(ts_ms: Any) -> str:
-    """itick 毫秒时间戳 → 本地时间字符串。"""
+    """毫秒时间戳 → 本地时间字符串。"""
     try:
         from datetime import datetime as _dt
         return _dt.fromtimestamp(int(ts_ms) / 1000).strftime("%Y-%m-%d %H:%M:%S")
@@ -148,7 +148,7 @@ def _fmt_quote_time(ts_ms: Any) -> str:
 
 
 def _section_realtime(report: dict) -> str:
-    """盘中实时报价（itick /stock/quote，提问时点抓取）。仅当日分析才有此字段。"""
+    """盘中实时报价（提问时点抓取）。仅当日分析才有此字段。"""
     rt = report.get("realtime") or {}
     if not rt or rt.get("price") is None:
         return ""
@@ -157,7 +157,8 @@ def _section_realtime(report: dict) -> str:
     chp_s = f"{arrow} {chp:+.2f}%" if isinstance(chp, (int, float)) else "—"
     queried = rt.get("queried_at") or "—"
     quote_t = _fmt_quote_time(rt.get("ts_ms"))
-    md = f"> ⚡ **盘中实时报价**（itick · 提问时点 **{queried}**，交易所报价时间 {quote_t}）\n\n"
+    source = rt.get("source") or rt.get("region") or "行情源"
+    md = f"> ⚡ **盘中实时报价**（{source} · 提问时点 **{queried}**，交易所报价时间 {quote_t}）\n\n"
     md += "| 项目 | 数值 |\n|---|---|\n"
     md += f"| **最新价** | **{_fmt_num(rt.get('price'))}** |\n"
     md += f"| **涨跌幅** | **{chp_s}** |\n"

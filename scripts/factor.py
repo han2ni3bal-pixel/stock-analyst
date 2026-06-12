@@ -135,7 +135,11 @@ def _historical_percentile(series: pd.Series, current: float) -> Optional[float]
 # ---------------- 风格因子（A 股估值分位）----------------
 
 def _style_factors_astock(code: str) -> dict:
-    """A 股风格因子 — 估值历史分位。失败时返回 error。"""
+    """A 股风格因子旧外部源已禁用。"""
+    return {"error": "A 股估值外部源已禁用"}
+
+
+def _style_factors_astock_legacy(code: str) -> dict:
     try:
         with _no_proxy():
             df = ak.stock_value_em(symbol=code)
@@ -337,7 +341,11 @@ def _technical_factors(kline: pd.DataFrame, target_dash: str) -> dict:
 # ---------------- 基本面因子（A 股）----------------
 
 def _fundamental_factors_astock(code: str) -> dict:
-    """从 stock_financial_analysis_indicator 拿最新财报关键指标。"""
+    """A 股基本面因子旧外部源已禁用。"""
+    return {"error": "A 股财务外部源已禁用"}
+
+
+def _fundamental_factors_astock_legacy(code: str) -> dict:
     try:
         # 默认拿最近两年
         from datetime import datetime
@@ -446,7 +454,16 @@ def _relative_strength_factors(
     peers: Optional[dict] = None,
     market: str = "astock",
 ) -> dict:
-    """个股 vs 同行业 / 个股 vs 大盘指数 的相对强度。"""
+    """相对强度旧外部源已禁用。"""
+    return {"error": "相对强度外部源已禁用"}
+
+
+def _relative_strength_factors_legacy(
+    kline: pd.DataFrame,
+    target_dash: str,
+    peers: Optional[dict] = None,
+    market: str = "astock",
+) -> dict:
     items: list[dict] = []
 
     # 个股 20 日收益
@@ -553,16 +570,8 @@ def compute_factors(
     """
     out: dict[str, Any] = {"categories": {}}
 
-    # 1) 计算各类因子原始打分
+    # 1) 计算各类因子原始打分。外部基本面 / 估值 / 指数源已禁用，仅保留 K 线派生技术因子。
     out["categories"]["technical"] = _technical_factors(kline, target_dash)
-    if market == "astock":
-        out["categories"]["style"] = _style_factors_astock(code)
-        out["categories"]["fundamental"] = _fundamental_factors_astock(code)
-        out["categories"]["relative_strength"] = _relative_strength_factors(
-            kline, target_dash, peers, market="astock")
-    else:
-        out["categories"]["relative_strength"] = _relative_strength_factors(
-            kline, target_dash, peers, market=market)
 
     # 2) 因子有效性检验
     validation_results: dict = {}

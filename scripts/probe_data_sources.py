@@ -1,36 +1,86 @@
-"""快速探测 akshare 关键接口可用性 — 当某些数据获取失败时用来诊断。
+"""快速探测当前核心数据源可用性。
 
-只跑分析所必需的几个接口，约 20-30s。
+当前策略：
+- Tickflow: 行情 / K 线 / 标的信息主源
+- yfinance: 美股盘前 / 盘后数据
+- akshare: A 股 / 港股新闻
+- Finnhub: 美股新闻
 """
 from __future__ import annotations
 
+import os
+import sys
 import time
-import akshare as ak
+from datetime import datetime, timedelta
 
-PROBES = [
-    ("stock_individual_basic_info_xq",  lambda: ak.stock_individual_basic_info_xq(symbol="SH603893")),
-    ("stock_zh_a_daily(sina)",           lambda: ak.stock_zh_a_daily(symbol="sh603893",
-                                                                      start_date="20260101",
-                                                                      end_date="20260524",
-                                                                      adjust="qfq")),
-    ("stock_news_em",                    lambda: ak.stock_news_em(symbol="603893")),
-    ("stock_lhb_detail_em",              lambda: ak.stock_lhb_detail_em(start_date="20260518",
-                                                                         end_date="20260522")),
-    ("stock_fund_flow_individual",       lambda: ak.stock_fund_flow_individual(symbol="即时")),
-]
+HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+
+from data_layer import (  # noqa: E402
+    _apply_proxy_for_yfinance,
+    _finnhub_token,
+    _tickflow_client,
+    _tickflow_symbol,
+    fetch_info,
+    fetch_kline,
+    fetch_news,
+)
+
+
+def _probe(name: str, fn):
+    t0 = time.time()
+    try:
+        res = fn()
+        if hasattr(res, "empty"):
+            ok = not res.empty
+            detail = f"rows={len(res)}"
+        elif isinstance(res, (list, tuple, dict, str)):
+            ok = bool(res)
+            detail = f"items={len(res)}" if not isinstance(res, str) else "ok"
+        else:
+            ok = res is not None
+            detail = "ok" if ok else "empty"
+        mark = "✅" if ok else "⚪"
+        print(f"{mark} {name:34s} {detail:<12s} ({time.time() - t0:.1f}s)")
+    except Exception as e:
+        print(f"❌ {name:34s} {type(e).__name__}: {str(e)[:80]}")
 
 
 def main():
-    for name, fn in PROBES:
-        t0 = time.time()
-        try:
-            df = fn()
-            n = 0 if df is None else len(df)
-            elapsed = time.time() - t0
-            mark = "✅" if n > 0 else "⚪"
-            print(f"{mark} {name:42s} rows={n:<6}  ({elapsed:.1f}s)")
-        except Exception as e:
-            print(f"❌ {name:42s} {type(e).__name__}: {str(e)[:60]}")
+    today = datetime.today().strftime("%Y%m%d")
+    start = (datetime.today() - timedelta(days=7)).date().isoformat()
+    end = datetime.today().date().isoformat()
+
+    _probe("tickflow client", _tickflow_client)
+    _probe("tickflow symbol A", lambda: _tickflow_symbol("astock", "600000", "sh"))
+    _probe("tickflow info A", lambda: fetch_info("astock", "600000", "sh"))
+    _probe("tickflow kline A", lambda: fetch_kline("astock", "600000", "sh", today, lookback=30))
+    _probe("tickflow info US", lambda: fetch_info("us", "AAPL", "us"))
+    _probe("tickflow kline US", lambda: fetch_kline("us", "AAPL", "us", today, lookback=30))
+
+    def yfinance_prepost():
+        _apply_proxy_for_yfinance()
+        import yfinance as yf
+        return yf.Ticker("AAPL").history(period="1d", interval="1m", prepost=True)
+
+    _probe("yfinance prepost US", yfinance_prepost)
+    _probe("akshare news A", lambda: fetch_news("astock", "600000", "浦发银行"))
+
+    def finnhub_news():
+        import requests
+        token = _finnhub_token()
+        if not token:
+            return []
+        resp = requests.get(
+            "https://finnhub.io/api/v1/company-news",
+            params={"symbol": "AAPL", "from": start, "to": end, "token": token},
+            timeout=20,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    _probe("finnhub news US", finnhub_news)
 
 
 if __name__ == "__main__":

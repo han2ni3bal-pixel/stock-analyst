@@ -20,7 +20,6 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
 from typing import Any
 
-import akshare as ak
 import pandas as pd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -29,16 +28,10 @@ if HERE not in sys.path:
 
 from technical import compute_indicators, analyze_signals as analyze_tech
 from sentiment_llm import analyze_news_with_llm
-from fund_flow import fetch_with_fallback, extract_main_net
-from data_layer import fetch_kline, fetch_news, fetch_info, fetch_etf_fund_flow, fetch_realtime
+from data_layer import fetch_kline, fetch_news, fetch_info, fetch_realtime
 from report_pdf import render_pdf
 from peer_scan import scan_peers, _suggest_peers
 from factor import compute_factors
-from options_flow import analyze_options_flow
-import info_store
-from info_adapters import sync_events
-from info_enrich import enrich_events
-from info_signal import compute_info_signal
 
 
 # ---------------- 资产抽象 ----------------
@@ -164,67 +157,15 @@ def signal_technical(kline: pd.DataFrame, asset: Asset, agg: Aggregator) -> dict
 
 
 def signal_fund_flow(asset: Asset, agg: Aggregator) -> dict | None:
-    """A 股: 三源回退；ETF: fund_etf_spot_em；港股 / 美股: 跳过（无个股口径）。"""
-    if asset.kind == "hk":
-        agg.add("资金流", 0, "港股无个股资金流口径，跳过")
-        return None
-    if asset.kind == "us":
-        agg.add("资金流", 0, "美股无个股资金流口径，跳过")
-        return None
-
-    if asset.kind == "etf":
-        v = fetch_etf_fund_flow(asset.code, asset.target_dash)
-        if v is None:
-            agg.add("资金流", 0, "ETF 资金流快照不在目标日（仅 spot 接口可用）")
-            return None
-        yi = v / 1e8
-        detail = f"主力净额 {yi:+.2f} 亿元 (东财 ETF spot)"
-        if v > 1e8:    agg.add("资金流", 1.0, detail)
-        elif v > 1e7:  agg.add("资金流", 0.5, detail)
-        elif v < -1e8: agg.add("资金流", -1.0, detail)
-        elif v < -1e7: agg.add("资金流", -0.5, detail)
-        else:          agg.add("资金流", 0, detail)
-        return {"main_net_yuan": v, "source": "etf_spot_em"}
-
-    # A 股
-    df, source = fetch_with_fallback(asset.code, asset.market_for_data)
-    if df is None:
-        agg.add("资金流", 0, "全部数据源失败")
-        return None
-    print(f"  ✓ 来源: {source}  rows={len(df)}")
-    main_net = extract_main_net(df, source, asset.target_dash)
-    if main_net is None:
-        agg.add("资金流", 0, f"未匹配目标日（{source}）")
-        return {"source": source}
-    yi = main_net / 1e8
-    detail = f"主力净额 {yi:+.2f} 亿元 ({source})"
-    if main_net > 1e8:    agg.add("资金流", 1.0, detail)
-    elif main_net > 1e7:  agg.add("资金流", 0.5, detail)
-    elif main_net < -1e8: agg.add("资金流", -1.0, detail)
-    elif main_net < -1e7: agg.add("资金流", -0.5, detail)
-    else:                 agg.add("资金流", 0, detail)
-    return {"main_net_yuan": main_net, "source": source}
+    """旧资金流外部源已禁用。"""
+    agg.add("资金流", 0, "旧资金流外部源已禁用，等待 Tickflow 替代口径")
+    return {"available": False, "source": None}
 
 
 def signal_lhb(asset: Asset, agg: Aggregator) -> dict | None:
-    """龙虎榜仅适用于 A 股个股。"""
-    if asset.kind != "astock":
-        return None
-    lhb = safe(
-        "stock_lhb_detail_em",
-        lambda: ak.stock_lhb_detail_em(start_date=asset.target_date, end_date=asset.target_date),
-        quiet=True,
-    )
-    if lhb is None or lhb.empty:
-        agg.add("龙虎榜", 0, "当日无龙虎榜")
-        return None
-    sub = lhb[lhb["代码"].astype(str) == asset.code]
-    if sub.empty:
-        agg.add("龙虎榜", 0, f"未上榜 (当日 {len(lhb)} 只)")
-        return None
-    print(sub.to_string(index=False))
-    agg.add("龙虎榜", 0, "上榜 → 资金博弈剧烈，方向中性但波动放大")
-    return sub.to_dict("records")
+    """龙虎榜外部源已禁用。"""
+    agg.add("龙虎榜", 0, "龙虎榜外部源已禁用，跳过")
+    return {"available": False}
 
 
 def signal_sentiment(asset: Asset, agg: Aggregator) -> dict:
@@ -340,60 +281,27 @@ def signal_factor(kline: pd.DataFrame, asset: Asset, peers: dict | None,
 
 
 def signal_options_flow(asset: Asset, agg: Aggregator) -> dict:
-    """期权流：A 股 ETF/指数期权看 PCR + QVIX；美股看 yfinance 期权链。
-
-    A 股个股 / 港股本身无可交易期权，标记 available=False 并以 0 分计入。"""
-    res = analyze_options_flow(asset.kind, asset.code, asset.market_for_data,
-                               asset.target_dash)
-    detail = res.get("detail", "")
-    score = float(res.get("score") or 0.0)
-    if res.get("available"):
-        name = res.get("underlying_name") or res.get("underlying") or asset.code
-        print(f"  标的: {res.get('underlying')} {name}（{res.get('source','')}）")
-        print(f"  认购量 {res.get('call_vol'):,.0f} / 认沽量 {res.get('put_vol'):,.0f}"
-              f"　|　未平仓 认购 {res.get('call_oi'):,.0f} / 认沽 {res.get('put_oi'):,.0f}")
-        if res.get("iv") is not None:
-            pct = res.get("iv_percentile_1y")
-            pct_s = f"，1 年分位 {pct*100:.0f}%" if pct is not None else ""
-            print(f"  隐含波动率 {res.get('iv')}{pct_s}")
-    else:
-        print(f"  {detail}")
-    agg.add("期权流(PCR/IV)", score, detail)
+    """期权流外部源已禁用。"""
+    res = {"available": False, "score": 0.0, "detail": "期权流外部源已禁用，跳过"}
+    print(f"  {res['detail']}")
+    agg.add("期权流(PCR/IV)", 0.0, res["detail"])
     return res
 
 
 def signal_info_events(asset: Asset, agg: Aggregator) -> dict:
-    """信息面:增量同步公告/年报/季报/事件 → 防前视查询 → LLM 加工 → 事件面信号(cap ±0.6)。
-
-    信息储备层目前覆盖 A 股(东财公告)与美股(SEC EDGAR);ETF/港股暂不支持,0 分计入。
-    全程优雅降级:任一步失败都不阻断分析,信息面记 0 分并打印原因。
-    """
-    if asset.kind in ("etf", "hk"):
-        agg.add("信息面(公告/事件)", 0, "信息储备层暂覆盖 A股/美股,跳过")
-        return {"available": False}
-
-    mkt = asset.market_for_data  # sh/sz/us — 与适配器、库口径一致
-    try:
-        conn = info_store.connect()
-        info_store.init_db(conn)
-        n_new = sync_events(conn, asset.code, mkt, asset.name)
-        cards = info_store.query_events(conn, asset.code, mkt, end_date=asset.target_dash)
-        n_enriched = enrich_events(conn, [c for c in cards if not c.get("processed_at")], market=asset.kind)
-        if n_enriched:
-            cards = info_store.query_events(conn, asset.code, mkt, end_date=asset.target_dash)
-        conn.close()
-    except Exception as e:
-        agg.add("信息面(公告/事件)", 0, f"信息面失败: {type(e).__name__}: {str(e)[:80]}")
-        return {"available": False, "error": str(e)[:120]}
-
-    res = compute_info_signal(cards, asset.target_dash)
-    print(f"  同步新增 {n_new} 条;窗口内(≤{asset.target_dash}) {len(cards)} 条,本次加工 {n_enriched} 条")
-    for t in res.get("top", []):
-        print(f"    [{t['sentiment']:+.2f}×m{t['materiality']} → {t['contrib']:+.3f}] "
-              f"{t['date']} {t['type']} {t['title']}")
-    agg.add("信息面(公告/事件)", res["score"], res["detail"])
-    res["available"] = True
-    res["events"] = cards
+    """公告 / SEC 信息面外部源已禁用。"""
+    res = {
+        "available": False,
+        "score": 0.0,
+        "raw": 0.0,
+        "n_events": 0,
+        "n_processed": 0,
+        "top": [],
+        "events": [],
+        "detail": "公告 / SEC 信息面外部源已禁用，跳过",
+    }
+    print(f"  {res['detail']}")
+    agg.add("信息面(公告/事件)", 0.0, res["detail"])
     return res
 
 
@@ -484,7 +392,7 @@ def run(asset: Asset, out_dir: str, skip_peers: bool = False,
         {"date": str}
     ).to_dict("records")
 
-    # itick 实时报价：仅当分析目标为今日时附带盘中最新价（display-only，不参与因子计算，避免前视偏差）
+    # 实时报价：仅当分析目标为今日时附带最新价（display-only，不参与因子计算，避免前视偏差）
     if asset.target_dash == datetime.now().strftime("%Y-%m-%d"):
         rt = fetch_realtime(asset.kind, asset.code, asset.market_for_data)
         if rt and rt.get("price") is not None:
@@ -492,7 +400,8 @@ def run(asset: Asset, out_dir: str, skip_peers: bool = False,
             chp = rt.get("change_pct")
             chp_s = f"{chp:+.2f}%" if isinstance(chp, (int, float)) else "—"
             vol = rt.get("volume") or 0
-            print(f"  ⚡ itick 实时: {rt['price']} ({chp_s})  量 {vol:,}  [{rt['region']}]  截至 {rt['queried_at']}")
+            source = rt.get("source") or rt.get("region", "")
+            print(f"  ⚡ 实时: {rt['price']} ({chp_s})  量 {vol:,}  [{source}]  截至 {rt['queried_at']}")
             report["realtime"] = rt
 
     section("3. 技术指标")
