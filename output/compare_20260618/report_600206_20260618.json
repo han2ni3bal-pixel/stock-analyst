@@ -1,0 +1,366 @@
+{
+  "code": "600206",
+  "name": "有研新材",
+  "market": "sh",
+  "kind": "astock",
+  "target_date": "20260618",
+  "info": {
+    "名称": "有研新材",
+    "代码": "600206.SH",
+    "交易所": "SH",
+    "类型": "stock"
+  },
+  "price": {
+    "open": 38.79,
+    "high": 43.51,
+    "low": 38.79,
+    "close": 42.51,
+    "volume": 1335872.0,
+    "prev_close": 39.79,
+    "pct_change": 6.835888414174413
+  },
+  "recent_kline": [
+    {
+      "date": "2026-06-11",
+      "open": 32.43,
+      "high": 35.1,
+      "low": 32.08,
+      "close": 34.24,
+      "volume": 1782000
+    },
+    {
+      "date": "2026-06-12",
+      "open": 35.7,
+      "high": 36.07,
+      "low": 32.45,
+      "close": 32.99,
+      "volume": 1759959
+    },
+    {
+      "date": "2026-06-15",
+      "open": 33.18,
+      "high": 35.55,
+      "low": 32.12,
+      "close": 35.55,
+      "volume": 1398256
+    },
+    {
+      "date": "2026-06-16",
+      "open": 35.26,
+      "high": 39.11,
+      "low": 35.01,
+      "close": 39.11,
+      "volume": 855289
+    },
+    {
+      "date": "2026-06-17",
+      "open": 38.81,
+      "high": 40.78,
+      "low": 38.4,
+      "close": 39.79,
+      "volume": 1675236
+    },
+    {
+      "date": "2026-06-18",
+      "open": 38.79,
+      "high": 43.51,
+      "low": 38.79,
+      "close": 42.51,
+      "volume": 1335872
+    }
+  ],
+  "technical": {
+    "score_raw": 0.4,
+    "snapshot": {
+      "close": 42.51,
+      "MA5": 37.989999999999995,
+      "MA10": 34.251503453141915,
+      "MA20": 31.60403330762163,
+      "MA60": 27.233168485421064,
+      "RSI14": 76.5132650796867,
+      "BB_up": 40.499940278491934,
+      "BB_mid": 31.60403330762163,
+      "BB_dn": 22.708126336751327,
+      "BB_pct": 1.1129766603950568,
+      "MACD_hist": 1.218026471902576,
+      "VOL_RATIO": 0.9508510932703472
+    },
+    "rules": [
+      "均线多头排列(MA5>10>20>60) → +1",
+      "RSI=76.5 超买 → -0.5",
+      "突破布林上轨(BB%=1.11) → 强势但有回吐风险 -0.3",
+      "MACD柱放大(1.218) → +0.2"
+    ]
+  },
+  "fund_flow": {
+    "available": false,
+    "source": null
+  },
+  "lhb": {
+    "available": false
+  },
+  "sentiment": {
+    "error": "TypeError: \"Could not resolve authentication method. Expected one of api_key, auth_token, or credentials to be set. Or for one of the `X-Api-Key` or `Authorization` header"
+  },
+  "factors": {
+    "categories": {
+      "technical": {
+        "items": [
+          {
+            "name": "5 日动量",
+            "value": "+24.15%",
+            "score": 0.5,
+            "remark": "强势上行",
+            "validation_key": "tech_momentum_5d",
+            "raw_score": 1.0,
+            "validation": {
+              "IC": 0.0568,
+              "IR": -0.5425,
+              "grade": "C",
+              "samples": 648,
+              "passes": false,
+              "direction_correct": true
+            },
+            "weight_multiplier": 0.5
+          },
+          {
+            "name": "20 日动量",
+            "value": "+47.50%",
+            "score": 0.5,
+            "remark": "中期趋势向上",
+            "validation_key": "tech_momentum_20d",
+            "raw_score": 1.0,
+            "validation": {
+              "IC": -0.0179,
+              "IR": -0.9526,
+              "grade": "C",
+              "samples": 633,
+              "passes": false,
+              "direction_correct": true
+            },
+            "weight_multiplier": 0.5
+          },
+          {
+            "name": "20 日波动率",
+            "value": "88.0%",
+            "score": -0.0,
+            "remark": "年化波动 88.0%（96% 分位高位，风险大）",
+            "validation_key": "tech_volatility",
+            "raw_score": -0.5,
+            "validation": {
+              "IC": 0.0199,
+              "IR": -0.3438,
+              "grade": "D",
+              "samples": 633,
+              "passes": false,
+              "direction_correct": true
+            },
+            "weight_multiplier": 0.0
+          },
+          {
+            "name": "量比(5/20日均量)",
+            "value": "1.50",
+            "score": 0.15,
+            "remark": "量比 1.50 温和放量",
+            "validation_key": "tech_vol_ratio",
+            "raw_score": 0.3,
+            "validation": {
+              "IC": 0.0619,
+              "IR": -0.1015,
+              "grade": "C",
+              "samples": 634,
+              "passes": false,
+              "direction_correct": true
+            },
+            "weight_multiplier": 0.5
+          },
+          {
+            "name": "布林位置",
+            "value": "1.11",
+            "score": -0.0,
+            "remark": "BB%=1.11 突破上轨（超买）",
+            "validation_key": "tech_boll_pct",
+            "raw_score": -0.3,
+            "validation": {
+              "IC": 0.0487,
+              "IR": -0.3213,
+              "grade": "D",
+              "samples": 634,
+              "passes": false,
+              "direction_correct": true
+            },
+            "weight_multiplier": 0.0
+          }
+        ],
+        "category_score": 0.3833333333333333,
+        "n_items_kept": 3,
+        "n_items_total": 5
+      }
+    },
+    "validation": {
+      "results": {
+        "tech_momentum_5d": {
+          "samples": 648,
+          "IC": 0.0568,
+          "IR": -0.5425,
+          "abs_IC": 0.0568,
+          "abs_IR": 0.5425,
+          "direction_correct": true,
+          "high_quantile_ret": 0.0295,
+          "low_quantile_ret": 0.0049,
+          "grade": "C",
+          "passes": false,
+          "rolling_window": 60,
+          "fwd_days": 5
+        },
+        "tech_momentum_20d": {
+          "samples": 633,
+          "IC": -0.0179,
+          "IR": -0.9526,
+          "abs_IC": 0.0179,
+          "abs_IR": 0.9526,
+          "direction_correct": true,
+          "high_quantile_ret": 0.0087,
+          "low_quantile_ret": 0.0087,
+          "grade": "C",
+          "passes": false,
+          "rolling_window": 60,
+          "fwd_days": 5
+        },
+        "tech_volatility": {
+          "samples": 633,
+          "IC": 0.0199,
+          "IR": -0.3438,
+          "abs_IC": 0.0199,
+          "abs_IR": 0.3438,
+          "direction_correct": true,
+          "high_quantile_ret": 0.0212,
+          "low_quantile_ret": 0.007,
+          "grade": "D",
+          "passes": false,
+          "rolling_window": 60,
+          "fwd_days": 5
+        },
+        "tech_vol_ratio": {
+          "samples": 634,
+          "IC": 0.0619,
+          "IR": -0.1015,
+          "abs_IC": 0.0619,
+          "abs_IR": 0.1015,
+          "direction_correct": true,
+          "high_quantile_ret": 0.0211,
+          "low_quantile_ret": -0.0002,
+          "grade": "C",
+          "passes": false,
+          "rolling_window": 60,
+          "fwd_days": 5
+        },
+        "tech_boll_pct": {
+          "samples": 634,
+          "IC": 0.0487,
+          "IR": -0.3213,
+          "abs_IC": 0.0487,
+          "abs_IR": 0.3213,
+          "direction_correct": true,
+          "high_quantile_ret": 0.0268,
+          "low_quantile_ret": 0.001,
+          "grade": "D",
+          "passes": false,
+          "rolling_window": 60,
+          "fwd_days": 5
+        }
+      },
+      "summary": {
+        "total": 5,
+        "passed": 0,
+        "passed_ratio": 0.0,
+        "grades": {
+          "A": 0,
+          "B": 0,
+          "C": 3,
+          "D": 2,
+          "?": 0
+        },
+        "mean_abs_IC": 0.041,
+        "mean_abs_IR": 0.4523
+      },
+      "thresholds": {
+        "IC": 0.06,
+        "IR": 0.5,
+        "grade_A": "IC≥0.10 + IR≥1.0",
+        "grade_B": "IC≥0.06 + IR≥0.5（通过）",
+        "grade_C": "仅一项通过（半权重）",
+        "grade_D": "都不达标（剔除）"
+      }
+    },
+    "category_scores": {
+      "technical": 0.3833333333333333
+    },
+    "weighted_score": 0.3833333333333333,
+    "weights_used": {
+      "technical": 1.0
+    }
+  },
+  "options_flow": {
+    "available": false,
+    "score": 0.0,
+    "detail": "期权流外部源已禁用，跳过"
+  },
+  "info_events": [],
+  "info_signal": {
+    "score": 0.0,
+    "raw": 0.0,
+    "n_events": 0,
+    "n_processed": 0,
+    "top": [],
+    "available": false
+  },
+  "verdict": {
+    "score_total": 1.5866666666666667,
+    "verdict": "偏多 ↗",
+    "confidence": "中",
+    "next_open": "2026-06-19 (Fri)",
+    "signals": [
+      {
+        "name": "当日涨跌",
+        "score": 1.0,
+        "detail": "涨幅 +6.84% 强势"
+      },
+      {
+        "name": "技术指标(MA/RSI/BOLL/MACD)",
+        "score": 0.27999999999999997,
+        "detail": "原始 +0.40 ×0.7 (均线多头排列(MA5>10>20>60); RSI=76.5 超买; 突破布林上轨(BB%=1.11); MACD柱放大(1.218))"
+      },
+      {
+        "name": "资金流",
+        "score": 0,
+        "detail": "旧资金流外部源已禁用，等待 Tickflow 替代口径"
+      },
+      {
+        "name": "龙虎榜",
+        "score": 0,
+        "detail": "龙虎榜外部源已禁用，跳过"
+      },
+      {
+        "name": "LLM情感",
+        "score": 0,
+        "detail": "分析失败: TypeError: \"Could not resolve authentication method. Expected one of api_key, auth_token, or credentials to be set. Or for one of the `X-Api-Key` or `Authorization` header"
+      },
+      {
+        "name": "多因子合成",
+        "score": 0.30666666666666664,
+        "detail": "加权 +0.38 ×0.8 (technical=+0.38)"
+      },
+      {
+        "name": "期权流(PCR/IV)",
+        "score": 0.0,
+        "detail": "期权流外部源已禁用，跳过"
+      },
+      {
+        "name": "信息面(公告/事件)",
+        "score": 0.0,
+        "detail": "公告 / SEC 信息面外部源已禁用，跳过"
+      }
+    ]
+  }
+}

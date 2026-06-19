@@ -178,9 +178,14 @@ def signal_sentiment(asset: Asset, agg: Aggregator) -> dict:
         agg.add("LLM情感", 0, "无新闻")
         return {}
     print(f"  原始新闻 {len(news)} 条 → 送入 Claude 分析（去重 + 重要性分级）")
-    res = analyze_news_with_llm(
-        news, f"{asset.name} {asset.code}", asset.target_dash, market=asset.kind
-    )
+    try:
+        res = analyze_news_with_llm(
+            news, f"{asset.name} {asset.code}", asset.target_dash, market=asset.kind
+        )
+    except Exception as e:
+        # Sentiment is optional. Missing credentials or a transient LLM error
+        # must not abort price/technical analysis and report generation.
+        res = {"error": f"{type(e).__name__}: {str(e)[:160]}"}
     if "error" in res:
         agg.add("LLM情感", 0, f"分析失败: {res['error']}")
         return res
@@ -385,6 +390,9 @@ def run(asset: Asset, out_dir: str, skip_peers: bool = False,
         print("❌ 无法获取 K 线，分析终止")
         report["error"] = "no_kline"
         return report
+    # Data providers may preserve a sliced/non-contiguous index.  Downstream
+    # signal code uses positional indexing, so normalize it at the boundary.
+    kline = kline.reset_index(drop=True)
     print(f"  取到 {len(kline)} 个交易日；最近 5 日：")
     print(kline.tail(5)[["date", "open", "high", "low", "close", "volume"]].to_string(index=False))
     report["price"] = signal_price_action(kline, asset, agg)
