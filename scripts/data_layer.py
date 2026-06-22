@@ -20,6 +20,8 @@ from typing import Callable, Optional, TypeVar
 import akshare as ak
 import pandas as pd
 
+from llm_client import LLMError, generate_text, get_llm_status, parse_json_text
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
@@ -402,15 +404,10 @@ Output in English. **JSON array only**, nothing else:
 
 def _fetch_news_via_llm(code: str, name: str = "", market: str = "astock",
                         limit: int = 8) -> Optional[pd.DataFrame]:
-    """LLM 新闻兜底：调 Claude 列近期新闻，转成与东财兼容的列名。
-
-    依赖 anthropic SDK + ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL（沿用 sentiment_llm 的客户端逻辑）。
-    """
-    try:
-        import anthropic
-        import httpx
-    except ImportError:
-        logger.warning("anthropic SDK 未安装，跳过 LLM 新闻兜底")
+    """可选 LLM 新闻兜底，转成与主新闻源兼容的列名。"""
+    status = get_llm_status()
+    if not status.available:
+        logger.info("跳过 LLM 新闻兜底：%s", status.reason)
         return None
 
     label = name or code
@@ -418,38 +415,20 @@ def _fetch_news_via_llm(code: str, name: str = "", market: str = "astock",
         name=label, code=code, limit=limit,
     )
 
-    explicit_proxy = os.getenv("ANTHROPIC_HTTP_PROXY", "").strip()
-    timeout = httpx.Timeout(120.0, connect=10.0)
-    if explicit_proxy:
-        http_client = httpx.Client(proxy=explicit_proxy, trust_env=False, timeout=timeout)
-    else:
-        http_client = httpx.Client(trust_env=False, timeout=timeout)
-
-    model = os.getenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-4-7")
-
     try:
-        client = anthropic.Anthropic(http_client=http_client)
-        resp = client.messages.create(
-            model=model,
+        response = generate_text(
+            prompt,
             max_tokens=2048,
-            messages=[{"role": "user", "content": prompt}],
+            retries=2,
         )
-    except Exception as e:
+    except LLMError as e:
         logger.warning(f"LLM 新闻兜底调用失败: {e}")
         return None
 
-    text_parts = [b.text for b in resp.content if getattr(b, "type", None) == "text"]
-    raw = "\n".join(text_parts).strip()
-    raw = re.sub(r"```(?:json)?\s*", "", raw)
-    raw = re.sub(r"\s*```", "", raw).strip()
-
-    import json as _json
-    m = re.search(r"\[\s*\{[\s\S]*\}\s*\]", raw)
-    json_str = m.group(0) if m else raw
     try:
-        items = _json.loads(json_str)
-    except _json.JSONDecodeError:
-        logger.warning(f"LLM 新闻 JSON 解析失败: {raw[:200]}")
+        items = parse_json_text(response.text)
+    except (ValueError, TypeError):
+        logger.warning(f"LLM 新闻 JSON 解析失败: {response.text[:200]}")
         return None
 
     rows = []
@@ -464,7 +443,7 @@ def _fetch_news_via_llm(code: str, name: str = "", market: str = "astock",
         })
     if not rows:
         return None
-    print(f"  ✓ LLM 新闻兜底 {len(rows)} 条（model={model}）")
+    print(f"  ✓ LLM 新闻兜底 {len(rows)} 条（{response.provider}/{response.model}）")
     return pd.DataFrame(rows)
 
 

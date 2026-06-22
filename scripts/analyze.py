@@ -29,9 +29,11 @@ if HERE not in sys.path:
 from technical import compute_indicators, analyze_signals as analyze_tech
 from sentiment_llm import analyze_news_with_llm
 from data_layer import fetch_kline, fetch_news, fetch_info, fetch_realtime
+from llm_client import get_llm_status
 from report_pdf import render_pdf
 from peer_scan import scan_peers, _suggest_peers
 from factor import compute_factors
+from fund_flow import fetch_with_fallback, summarize_fund_flow
 
 
 # ---------------- 资产抽象 ----------------
@@ -157,9 +159,36 @@ def signal_technical(kline: pd.DataFrame, asset: Asset, agg: Aggregator) -> dict
 
 
 def signal_fund_flow(asset: Asset, agg: Aggregator) -> dict | None:
-    """旧资金流外部源已禁用。"""
-    agg.add("资金流", 0, "旧资金流外部源已禁用，等待 Tickflow 替代口径")
-    return {"available": False, "source": None}
+    """A 股资金流：Tickflow 暂无口径，使用东财等多源回退。"""
+    if asset.kind != "astock":
+        agg.add("资金流", 0, f"{asset.kind} 暂无统一个股资金流口径，跳过")
+        return {"available": False, "source": None, "reason": "unsupported_market"}
+
+    df, source = fetch_with_fallback(asset.code, asset.market_for_data)
+    summary = summarize_fund_flow(df, source, asset.target_dash) if df is not None and source else None
+    if not summary:
+        agg.add("资金流", 0, "东财/雪球/同花顺均无可用资金流数据")
+        return {"available": False, "source": None, "reason": "all_sources_unavailable"}
+
+    main_net = float(summary["main_net"])
+    if main_net > 1e8:
+        score = 1.0
+    elif main_net > 1e7:
+        score = 0.5
+    elif main_net < -1e8:
+        score = -1.0
+    elif main_net < -1e7:
+        score = -0.5
+    else:
+        score = 0.0
+    direction = "净流入" if main_net >= 0 else "净流出"
+    snapshot = summary.get("snapshot_date") or asset.target_dash
+    stale = "（最近交易日）" if not summary.get("is_target_date", True) else ""
+    agg.add(
+        "资金流", score,
+        f"{source} {snapshot}{stale} 主力{direction} {abs(main_net) / 1e8:.2f}亿元",
+    )
+    return summary
 
 
 def signal_lhb(asset: Asset, agg: Aggregator) -> dict | None:
@@ -171,13 +200,13 @@ def signal_lhb(asset: Asset, agg: Aggregator) -> dict | None:
 def signal_sentiment(asset: Asset, agg: Aggregator) -> dict:
     """新闻情感分析。ETF 跳过；A 股 / 港股 / 美股 都跑。"""
     if asset.kind == "etf":
-        agg.add("LLM情感", 0, "ETF 无个股新闻，跳过")
+        agg.add("新闻情感", 0, "ETF 无个股新闻，跳过")
         return {}
     news = fetch_news(asset.kind, asset.code, name=asset.name)
     if news is None or news.empty:
-        agg.add("LLM情感", 0, "无新闻")
+        agg.add("新闻情感", 0, "无新闻")
         return {}
-    print(f"  原始新闻 {len(news)} 条 → 送入 Claude 分析（去重 + 重要性分级）")
+    print(f"  原始新闻 {len(news)} 条 → 情感分析（LLM 优先，本地规则自动降级）")
     try:
         res = analyze_news_with_llm(
             news, f"{asset.name} {asset.code}", asset.target_dash, market=asset.kind
@@ -186,8 +215,11 @@ def signal_sentiment(asset: Asset, agg: Aggregator) -> dict:
         # Sentiment is optional. Missing credentials or a transient LLM error
         # must not abort price/technical analysis and report generation.
         res = {"error": f"{type(e).__name__}: {str(e)[:160]}"}
+    if res.get("skipped"):
+        agg.add("新闻情感", 0, res.get("reason", "情感分析未启用，跳过"))
+        return res
     if "error" in res:
-        agg.add("LLM情感", 0, f"分析失败: {res['error']}")
+        agg.add("新闻情感", 0, f"分析失败: {res['error']}")
         return res
 
     score = float(res.get("score", 0))
@@ -198,8 +230,10 @@ def signal_sentiment(asset: Asset, agg: Aggregator) -> dict:
     conf_mult = {"low": 0.5, "medium": 0.75, "high": 1.0}.get(confidence, 0.5)
     weighted = (score / 5) * conf_mult
 
-    agg.add("LLM情感", weighted,
-            f"verdict={verdict}({confidence}) 原始 {score:+.1f}/5  事件 {n_events} 条 — {rationale[:80]}")
+    provider = res.get("_provider", "unknown")
+    agg.add("新闻情感", weighted,
+            f"{provider} verdict={verdict}({confidence}) 原始 {score:+.1f}/5  "
+            f"事件 {n_events} 条 — {rationale[:80]}")
     print(f"\n  事件清单 ({n_events})：")
     for e in res.get("events", []):
         print(f"    [{e.get('direction','?')}{e.get('importance','?')}/{e.get('timing','?')}] "
@@ -423,8 +457,9 @@ def run(asset: Asset, out_dir: str, skip_peers: bool = False,
         section(f"5. 龙虎榜 ({asset.target_date})")
         report["lhb"] = signal_lhb(asset, agg)
 
-    # peer 推荐(LLM) 与新闻情感(LLM) 互不依赖 → 并发发起，让两次 Opus 往返重叠
-    run_peers = asset.kind != "etf" and not skip_peers
+    # peer 推荐与新闻情感互不依赖；仅在可选 LLM 已配置时并发。
+    llm_status = get_llm_status()
+    run_peers = asset.kind != "etf" and not skip_peers and llm_status.available
     peer_executor = None
     peer_rec_future = None
     if run_peers:
@@ -437,7 +472,7 @@ def run(asset: Asset, out_dir: str, skip_peers: bool = False,
         peer_rec_future = peer_executor.submit(
             _suggest_peers, asset.name, asset.code, asset.kind, industry_hint)
 
-    section("6. 新闻情感（Claude API）")
+    section("6. 新闻情感（可选 LLM）")
     report["sentiment"] = signal_sentiment(asset, agg)
 
     # 板块扫描提前到因子前，因子的"相对强度"会复用 peers 数据
@@ -509,7 +544,7 @@ def run(asset: Asset, out_dir: str, skip_peers: bool = False,
                 [sys.executable, os.path.join(HERE, "report_pdf.py"), out, out_dir],
                 stdout=logf, stderr=subprocess.STDOUT, start_new_session=True,
             )
-            print(f"  PDF 后台生成中（含综述 LLM）→ {pdf_path}")
+            print(f"  PDF 后台生成中（纯渲染，不调用 LLM）→ {pdf_path}")
             print(f"     完成前请稍候几秒；如未生成可看日志 {log_path}")
         except Exception as e:
             print(f"  [PDF 异步启动失败，回退同步]: {e}")
@@ -537,15 +572,19 @@ def parse_args():
     p.add_argument("--out", default=None, help="输出目录，默认 ./output")
     p.add_argument("--no-peers", action="store_true",
                    help="不扫描同行业 peers（默认会跑，跑一次约 +20-60s）")
+    p.add_argument("--no-llm", action="store_true",
+                   help="关闭可选 LLM；新闻情感自动使用本地规则模型")
     p.add_argument("--no-validate-factors", action="store_true",
                    help="跳过因子有效性 IC/IR 检验，所有因子全权计入")
     p.add_argument("--sync-pdf", action="store_true",
-                   help="同步生成 PDF（阻塞等综述 LLM + Chrome）；默认异步后台生成")
+                   help="同步生成 PDF（仅等待 Chrome 渲染）；默认异步后台生成")
     return p.parse_args()
 
 
 def main():
     args = parse_args()
+    if args.no_llm:
+        os.environ["STOCK_ANALYST_LLM_PROVIDER"] = "disabled"
     asset = Asset(code=args.code, name=args.name or args.code,
                   market=args.market, target_date=args.target_date)
     out_dir = args.out or os.path.join(os.getcwd(), "output")

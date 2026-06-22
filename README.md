@@ -3,7 +3,7 @@
 A 股 / 港股 / ETF / 美股 综合分析与短期走势预测 — Claude Code skill。
 
 输入：股票/ETF 代码 + 目标交易日。
-输出：技术指标 + 资金流 + 龙虎榜 + 新闻情感（Claude API）→ 加权信号合成 → 下一交易日开盘倾向 + JSON 报告 + **PDF 研报**。
+输出：技术指标 + A股多源资金流 + 新闻情感（LLM优先、本地规则降级）→ 加权信号合成 → 下一交易日开盘倾向 + JSON 报告 + **PDF 研报**。
 
 ## 安装
 
@@ -55,7 +55,7 @@ Chrome 不存在时会降级输出 HTML（不影响 JSON 报告）。
 
 ### 4. 配置环境变量
 
-#### 必需（情感分析与综合解读用）
+#### 可选（LLM增强与综合解读用）
 
 ```bash
 export ANTHROPIC_API_KEY="sk-..."           # 或者 ANTHROPIC_AUTH_TOKEN
@@ -64,7 +64,7 @@ export ANTHROPIC_BASE_URL="https://api.anthropic.com"
 export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-7"
 ```
 
-如果不设，情感分析 + PDF 综合解读会跳过，但其他分析仍可跑。
+如果不设，新闻情感自动使用本地规则模型；仅同行推荐和PDF综合解读跳过。
 
 #### 可选
 
@@ -172,7 +172,7 @@ stock-analyst/
 │   ├── data_layer.py     # 多源数据获取（akshare + yfinance）
 │   ├── technical.py      # 技术指标
 │   ├── fund_flow.py      # 资金流（A 股）
-│   ├── sentiment_llm.py  # Claude API 新闻情感
+│   ├── sentiment_llm.py  # LLM优先、本地规则降级的新闻情感
 │   ├── report_pdf.py     # PDF 渲染（Markdown → Chrome headless → PDF）
 │   ├── check_env.py      # 环境自检
 │   └── probe_data_sources.py  # 数据源连通性探测

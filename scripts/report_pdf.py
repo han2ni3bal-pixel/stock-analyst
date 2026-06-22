@@ -6,7 +6,7 @@ PDF 路径：{out_dir}/report_{code}_{date}.pdf
 设计：
 - 结构化数据全部用表格呈现（基本信息、当日价、技术快照、新闻事件、信号汇总）
 - 因子打分卡：4 维雷达图 + 因子明细表
-- 用 Claude 基于 report dict 写一段"综合解读"（失败时降级跳过，不影响 PDF 生成）
+- PDF 默认只渲染 JSON；可用 --with-synthesis 显式执行可选 LLM 增强
 - A4 / 中文衬线 / 表格 / 引用块样式贴近金融研报
 """
 from __future__ import annotations
@@ -18,9 +18,12 @@ import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 import markdown
+
+from llm_client import LLMError, generate_text, get_llm_status
 
 
 def _find_chrome() -> str | None:
@@ -76,6 +79,19 @@ def _fmt_num(v: Any, decimals: int = 2) -> str:
         return f"{f:.{decimals}f}"
     except Exception:
         return str(v)
+
+
+def _safe_llm_detail(value: Any) -> str:
+    """Do not leak provider authentication exceptions into user reports."""
+    text = str(value or "")
+    auth_markers = (
+        "Could not resolve authentication method",
+        "Expected one of api_key",
+        "ANTHROPIC_API_KEY",
+    )
+    if any(marker in text for marker in auth_markers):
+        return "未配置 LLM 凭证，已跳过可选增强"
+    return text
 
 
 def _kind_label(kind: str) -> str:
@@ -249,9 +265,9 @@ def _section_fund_flow(report: dict) -> str:
     ff = report.get("fund_flow")
     kind = report.get("kind", "")
     md = "## 四、资金流\n\n"
-    if not ff:
+    if not ff or ff.get("available") is False:
         if kind == "astock":
-            md += "> 当日无资金流数据（可能源被风控）\n\n"
+            md += "> 东财、雪球和同花顺均未返回可用资金流数据。该项按缺失处理，不代表净流入为零。\n\n"
         elif kind == "etf":
             md += "> ETF 资金流快照不在目标日，跳过\n\n"
         else:
@@ -287,18 +303,24 @@ def _section_lhb(report: dict) -> str:
 
 def _section_sentiment(report: dict) -> str:
     s = report.get("sentiment") or {}
+    if s.get("skipped"):
+        return f"## 六、新闻情感\n\n> {s.get('reason', 'LLM 增强未启用，已跳过')}\n\n"
     if not s or "error" in s and not s.get("events"):
         md = "## 六、新闻情感\n\n"
         if s.get("error"):
-            md += f"> 分析未完成：{s['error']}\n\n"
+            md += f"> {_safe_llm_detail(s['error'])}\n\n"
         else:
             md += "> 无新闻数据\n\n"
         return md
-    md = "## 六、新闻情感（Claude 分析）\n\n"
+    provider = s.get("_provider") or "LLM"
+    provider_label = "本地规则" if provider == "local-rules" else provider
+    md = f"## 六、新闻情感（{provider_label} 分析）\n\n"
     md += f"**整体判断**：`{s.get('verdict', 'neutral')}`｜置信度：`{s.get('confidence', 'low')}`｜原始得分：**{s.get('score', 0):+.1f} / 5**\n\n"
     rationale = s.get("rationale") or ""
     if rationale:
         md += f"> {rationale}\n\n"
+    if s.get("_fallback_reason"):
+        md += "> 注：LLM 不可用，本节由本地可解释规则模型生成。\n\n"
     events = s.get("events") or []
     if events:
         md += "### 核心事件\n\n"
@@ -653,7 +675,8 @@ def _section_verdict(report: dict) -> str:
     if signals:
         md += "| 维度 | 得分 | 说明 |\n|---|---|---|\n"
         for s in signals:
-            md += f"| {s.get('name','')} | **{s.get('score',0):+.2f}** | {s.get('detail','')[:120]} |\n"
+            detail = _safe_llm_detail(s.get("detail", ""))[:120]
+            md += f"| {s.get('name','')} | **{s.get('score',0):+.2f}** | {detail} |\n"
         md += "\n"
     score = v.get("score_total", 0)
     verdict = v.get("verdict", "—")
@@ -667,20 +690,13 @@ def _section_verdict(report: dict) -> str:
     return md
 
 
-# ---------- Claude 综合解读 ----------
+# ---------- 可选 LLM 综合解读（显式 enrichment 步骤） ----------
 
-def _llm_synthesis(report: dict) -> str:
-    """让 Claude 基于 report 写一段综合解读。失败时返回空字符串。"""
-    try:
-        import anthropic
-        import httpx
-    except ImportError:
+def generate_synthesis(report: dict) -> str:
+    """Optional enrichment step. PDF rendering itself never calls an LLM."""
+    status = get_llm_status()
+    if not status.available:
         return ""
-
-    timeout = httpx.Timeout(120.0, connect=10.0)
-    explicit = os.getenv("ANTHROPIC_HTTP_PROXY", "").strip()
-    http_client = (httpx.Client(proxy=explicit, trust_env=False, timeout=timeout)
-                   if explicit else httpx.Client(trust_env=False, timeout=timeout))
 
     payload = {
         "name": report.get("name"),
@@ -743,29 +759,18 @@ def _llm_synthesis(report: dict) -> str:
 7. 若数据含 `realtime` 字段（盘中实时报价，截至 queried_at 提问时点），说明这是**当下盘中价**而非收盘价：主导逻辑与操作建议须锚定该实时价，并指出它相对最近收盘的变化方向。无 realtime 字段时按收盘价分析即可。
 """
 
-    client = anthropic.Anthropic(http_client=http_client)
-    model = os.getenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-4-7")
-    last_exc = None
-    for attempt in range(2):
-        try:
-            resp = client.messages.create(
-                model=model,
-                max_tokens=4096,
-                thinking={"type": "adaptive"},
-                system=[{"type": "text", "text": sys_prompt,
-                         "cache_control": {"type": "ephemeral"}}],
-                messages=[{"role": "user",
-                           "content": "结构化分析数据：\n" + json.dumps(payload, ensure_ascii=False, indent=2)}],
-            )
-            text_parts = [b.text for b in resp.content if getattr(b, "type", None) == "text"]
-            return "\n".join(text_parts).strip()
-        except Exception as e:
-            last_exc = e
-            if attempt == 0:
-                import time; time.sleep(2)
-                continue
-    print(f"  [PDF] LLM 综合解读失败（已重试），跳过：{last_exc}")
-    return ""
+    try:
+        response = generate_text(
+            "结构化分析数据：\n" + json.dumps(payload, ensure_ascii=False, indent=2),
+            system_prompt=sys_prompt,
+            max_tokens=4096,
+            retries=2,
+            thinking=True,
+        )
+        return response.text
+    except LLMError as exc:
+        print(f"  [LLM] 综合解读失败，跳过：{exc}")
+        return ""
 
 
 # ---------- HTML / PDF ----------
@@ -845,43 +850,52 @@ def build_markdown(report: dict, with_synthesis: bool = True) -> str:
         _section_verdict(report),
     ]
     if with_synthesis:
-        synth = _llm_synthesis(report)
+        synth = str(report.get("synthesis") or "").strip()
         if synth:
-            parts.append("---\n\n# 综合解读（Claude 生成）\n\n" + synth + "\n")
+            parts.append("---\n\n# 综合解读（LLM 增强）\n\n" + synth + "\n")
     return "\n".join(p for p in parts if p)
 
 
 def render_pdf(report: dict, out_dir: str, with_synthesis: bool = True) -> str:
-    os.makedirs(out_dir, exist_ok=True)
+    # Chrome requires an absolute file URI.  ``file://output/report.html`` is
+    # interpreted as a host named "output" and Chrome silently prints its
+    # ERR_INVALID_URL page to an otherwise valid-looking PDF.
+    output_dir = Path(out_dir).expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
     code = report.get("code", "unknown")
     date = report.get("target_date", "")
     name = report.get("name", code)
-    pdf_path = os.path.join(out_dir, f"report_{code}_{date}.pdf")
+    pdf_path = output_dir / f"report_{code}_{date}.pdf"
 
     md = build_markdown(report, with_synthesis=with_synthesis)
     body = markdown.markdown(md, extensions=["tables", "fenced_code", "nl2br"])
     html = _HTML_TEMPLATE.format(title=f"{name} {code} 分析", body=body)
 
-    html_path = pdf_path.replace(".pdf", ".html")
-    with open(html_path, "w", encoding="utf-8") as f:
+    html_path = pdf_path.with_suffix(".html")
+    with html_path.open("w", encoding="utf-8") as f:
         f.write(html)
 
     chrome = _find_chrome()
     if not chrome:
         print(f"  [PDF] Chrome/Chromium 未找到，仅生成 HTML：{html_path}")
         print("       提示：安装 Chrome 后重试，或设置 CHROME_BIN=/path/to/chrome")
-        return html_path
+        return str(html_path)
 
     subprocess.run(
         [chrome, "--headless", "--disable-gpu", "--no-pdf-header-footer",
-         f"--print-to-pdf={pdf_path}", f"file://{html_path}"],
+         f"--print-to-pdf={pdf_path}", html_path.as_uri()],
         check=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
     )
+    if not pdf_path.is_file() or pdf_path.stat().st_size == 0:
+        raise RuntimeError(f"Chrome 未生成 PDF：{pdf_path}")
+    with pdf_path.open("rb") as f:
+        if f.read(5) != b"%PDF-":
+            raise RuntimeError(f"Chrome 输出不是有效 PDF：{pdf_path}")
     try:
-        os.remove(html_path)
+        html_path.unlink()
     except OSError:
         pass
-    return pdf_path
+    return str(pdf_path)
 
 
 def _main_cli() -> None:
@@ -891,17 +905,22 @@ def _main_cli() -> None:
         python report_pdf.py <report_json> <out_dir> [--no-synthesis]
     """
     args = [a for a in sys.argv[1:]]
+    enrich = "--with-synthesis" in args
     with_syn = True
+    if enrich:
+        args = [a for a in args if a != "--with-synthesis"]
     if "--no-synthesis" in args:
         with_syn = False
         args = [a for a in args if a != "--no-synthesis"]
     if len(args) < 2:
-        print("usage: report_pdf.py <report_json> <out_dir> [--no-synthesis]",
+        print("usage: report_pdf.py <report_json> <out_dir> [--with-synthesis|--no-synthesis]",
               file=sys.stderr)
         sys.exit(2)
     json_path, out_dir = args[0], args[1]
     with open(json_path, "r", encoding="utf-8") as f:
         report = json.load(f)
+    if enrich:
+        report["synthesis"] = generate_synthesis(report)
     path = render_pdf(report, out_dir, with_synthesis=with_syn)
     print(path)
 

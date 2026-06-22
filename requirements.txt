@@ -11,7 +11,7 @@ tickflow[all]  # Tickflow 行情 / K 线 / 标的信息主源
 # Markets
 yfinance>=0.2  # 美股盘前 / 盘后数据；需要代理才能稳定访问 Yahoo Finance
 
-# LLM 情感分析 + PDF 综合解读
+# Optional LLM provider（未配置时核心分析与 PDF 仍可运行）
 anthropic>=0.40
 httpx>=0.27
 

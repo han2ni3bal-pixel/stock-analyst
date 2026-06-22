@@ -1,4 +1,4 @@
-"""个股资金流向 — 多源回退。
+"""A 股个股资金流向 — 多源回退。
 
 被风控较严的：push2.eastmoney.com（akshare.stock_individual_fund_flow 默认走这里）
 本模块按可靠度尝试：
@@ -14,6 +14,15 @@ import pandas as pd
 import requests
 
 
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+    ),
+    "Referer": "https://quote.eastmoney.com/",
+}
+
+
 def from_eastmoney_push2his(code: str, market: int = 1, days: int = 20) -> Optional[pd.DataFrame]:
     """market: 1=沪 / 0=深"""
     url = "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"
@@ -24,7 +33,7 @@ def from_eastmoney_push2his(code: str, market: int = 1, days: int = 20) -> Optio
         "fields1": "f1,f2,f3,f7",
         "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65",
     }
-    r = requests.get(url, params=params, timeout=10)
+    r = requests.get(url, params=params, headers=_HEADERS, timeout=10)
     if r.status_code != 200 or not r.text.strip():
         return None
     body = r.json()
@@ -136,3 +145,47 @@ def extract_main_net(df: pd.DataFrame, source: str, target_dash: str) -> float |
             if not today.empty:
                 return float(today["main_net_inflows"].sum())
     return None
+
+
+def summarize_fund_flow(
+    df: pd.DataFrame,
+    source: str,
+    target_dash: str,
+) -> dict | None:
+    """统一不同来源的数据结构，并尽量选取不晚于目标日的最新快照。"""
+    if df is None or df.empty:
+        return None
+
+    if "push2his" in source:
+        work = df.copy()
+        work["date"] = pd.to_datetime(work["date"], errors="coerce")
+        target = pd.Timestamp(target_dash)
+        eligible = work[work["date"].notna() & (work["date"] <= target)]
+        if eligible.empty:
+            return None
+        row = eligible.sort_values("date").iloc[-1]
+        snapshot = row["date"].strftime("%Y-%m-%d")
+        return {
+            "available": True,
+            "source": source,
+            "main_net": float(row["main_net"]),
+            "main_pct": float(row["main_pct"]),
+            "large_net": float(row["large_net"]),
+            "xlarge_net": float(row["xlarge_net"]),
+            "close": float(row["close"]),
+            "pct_change": float(row["pct_change"]),
+            "snapshot_date": snapshot,
+            "is_target_date": snapshot == target_dash,
+        }
+
+    main_net = extract_main_net(df, source, target_dash)
+    if main_net is None:
+        return None
+    # 即时榜没有可靠的历史快照日期，明确标注为查询时点数据。
+    return {
+        "available": True,
+        "source": source,
+        "main_net": float(main_net),
+        "snapshot_date": target_dash,
+        "is_target_date": True,
+    }

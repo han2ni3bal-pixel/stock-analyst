@@ -10,15 +10,13 @@
 """
 from __future__ import annotations
 
-import json
-import os
-import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pandas as pd
 
 from data_layer import fetch_kline
+from llm_client import LLMError, generate_text, get_llm_status, parse_json_text
 from technical import compute_indicators, analyze_signals as analyze_tech
 
 
@@ -51,18 +49,9 @@ _PEER_SYSTEM_PROMPT = """你是行业研究员。给定一只股票（A 股 / �
 
 def _suggest_peers(target_name: str, target_code: str, target_market: str,
                    industry_hint: str | None) -> dict:
-    try:
-        import anthropic
-        import httpx
-    except ImportError:
+    status = get_llm_status()
+    if not status.available:
         return {}
-
-    timeout = httpx.Timeout(60.0, connect=10.0)
-    explicit = os.getenv("ANTHROPIC_HTTP_PROXY", "").strip()
-    http_client = (httpx.Client(proxy=explicit, trust_env=False, timeout=timeout)
-                   if explicit else httpx.Client(trust_env=False, timeout=timeout))
-    client = anthropic.Anthropic(http_client=http_client)
-    model = os.getenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-4-7")
 
     user_msg = (
         f"目标股票：{target_name}（代码 {target_code}，市场 {target_market}）\n"
@@ -70,28 +59,19 @@ def _suggest_peers(target_name: str, target_code: str, target_market: str,
         "请列出该行业最热门的同行 peers（A 股 8 只 + 美股 8 只）。"
     )
 
-    last_exc: Exception | None = None
-    for attempt in range(2):
-        try:
-            resp = client.messages.create(
-                model=model, max_tokens=2048,
-                system=[{"type": "text", "text": _PEER_SYSTEM_PROMPT,
-                         "cache_control": {"type": "ephemeral"}}],
-                messages=[{"role": "user", "content": user_msg}],
-            )
-            text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text").strip()
-            if text.startswith("```"):
-                text = text.strip("`")
-                if text.startswith("json"): text = text[4:].strip()
-                if text.endswith("```"): text = text[:-3].strip()
-            return json.loads(text)
-        except Exception as e:
-            last_exc = e
-            if attempt == 0:
-                time.sleep(2)
-                continue
-    print(f"  [Peer] LLM 推荐失败: {last_exc}")
-    return {}
+    try:
+        response = generate_text(
+            user_msg,
+            system_prompt=_PEER_SYSTEM_PROMPT,
+            max_tokens=2048,
+            timeout_seconds=60,
+            retries=2,
+        )
+        result = parse_json_text(response.text)
+        return result if isinstance(result, dict) else {}
+    except (LLMError, ValueError, TypeError) as exc:
+        print(f"  [Peer] LLM 推荐失败: {exc}")
+        return {}
 
 
 # ---------------- 单只 peer 的轻量信号 ----------------
@@ -254,7 +234,7 @@ def scan_peers(target_name: str, target_code: str, target_market: str,
     if prefetched_rec is not None:
         rec = prefetched_rec
     else:
-        print("  [Peer] 调 Claude 推荐同行业 peers...")
+        print("  [Peer] 调可选 LLM 推荐同行业 peers...")
         rec = _suggest_peers(target_name, target_code, target_market, industry_hint)
     if not rec:
         return {"error": "peer 推荐失败"}

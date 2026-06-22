@@ -34,7 +34,6 @@ def check_python() -> bool:
 REQUIRED = [
     ("akshare",   "1.18"),
     ("pandas",    "2.0"),
-    ("anthropic", "0.40"),
     ("httpx",     "0.27"),
     ("markdown",  "3.5"),
     ("yfinance",  "0.2"),
@@ -75,56 +74,42 @@ def check_chrome() -> bool:
 
 
 def check_env_vars() -> bool:
-    base = os.environ.get("ANTHROPIC_BASE_URL", "")
-    key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
-    model = os.environ.get("ANTHROPIC_DEFAULT_OPUS_MODEL", "")
     proxy = os.environ.get("STOCK_ANALYST_PROXY", "")
+    provider = os.environ.get("STOCK_ANALYST_LLM_PROVIDER", "auto")
 
-    all_good = True
-    if key:
-        masked = key[:7] + "***" if len(key) > 10 else "***"
-        ok(f"ANTHROPIC_API_KEY / AUTH_TOKEN 已设置 ({masked})")
+    HERE = os.path.dirname(os.path.abspath(__file__))
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)
+    from llm_client import get_llm_status
+    status = get_llm_status()
+    if status.available:
+        ok(f"可选 LLM: {status.provider}/{status.model}（配置={provider}）")
     else:
-        fail("缺少 ANTHROPIC_API_KEY 或 ANTHROPIC_AUTH_TOKEN — 情感分析与综合解读会跳过")
-        all_good = False
-
-    if base:
-        ok(f"ANTHROPIC_BASE_URL = {base}")
-    else:
-        warn("ANTHROPIC_BASE_URL 未设置 — 走默认 api.anthropic.com")
-
-    if model:
-        ok(f"ANTHROPIC_DEFAULT_OPUS_MODEL = {model}")
-    else:
-        warn("ANTHROPIC_DEFAULT_OPUS_MODEL 未设置 — 默认 claude-opus-4-7")
+        warn(f"可选 LLM 未启用：{status.reason}；核心分析与 PDF 不受影响")
 
     if proxy:
         ok(f"STOCK_ANALYST_PROXY = {proxy}（用于 yfinance 美股数据）")
     else:
         warn("STOCK_ANALYST_PROXY 未设置 — 美股可能无法访问 Yahoo Finance")
-    return all_good
+    return True
 
 
-def check_anthropic_call() -> bool:
+def check_llm_call() -> bool:
+    HERE = os.path.dirname(os.path.abspath(__file__))
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)
+    from llm_client import generate_text, get_llm_status
+    status = get_llm_status()
+    if not status.available:
+        warn("可选 LLM 连通性跳过")
+        return True
     try:
-        import anthropic, httpx
-    except ImportError:
-        return False
-    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
-        return False
-    try:
-        client = anthropic.Anthropic(http_client=httpx.Client(trust_env=False, timeout=30.0))
-        model = os.environ.get("ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-4-7")
-        r = client.messages.create(
-            model=model, max_tokens=16,
-            messages=[{"role": "user", "content": "say OK"}],
-        )
-        text = "".join(b.text for b in r.content if getattr(b, "type", None) == "text")
-        ok(f"Anthropic API 连通: {text.strip()[:30]}")
+        result = generate_text("say OK", max_tokens=16, timeout_seconds=30, retries=1)
+        ok(f"LLM API 连通: {result.text.strip()[:30]}")
         return True
     except Exception as e:
-        fail(f"Anthropic API 调用失败: {e}")
-        return False
+        warn(f"可选 LLM API 调用失败（核心分析仍可运行）: {e}")
+        return True
 
 
 def main() -> int:
@@ -136,7 +121,7 @@ def main() -> int:
         ("Python 依赖", check_deps()),
         ("Chrome/Chromium", check_chrome()),
         ("环境变量", check_env_vars()),
-        ("Anthropic API 连通", check_anthropic_call()),
+        ("可选 LLM API 连通", check_llm_call()),
     ]
     print()
     print("=" * 50)
